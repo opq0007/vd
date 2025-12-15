@@ -1,0 +1,13 @@
+faster-whisper
+fastapi
+uvicorn
+python-multipart
+aiofiles
+PyJWT
+gradio
+requests
+playwright>=1.40.0
+opencv-python
+numpy
+torch
+Pillow>=10.0.0
