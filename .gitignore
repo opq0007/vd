@@ -208,3 +208,10 @@ __marimo__/
 
 models/
 output/
+
+# 字体文件（忽略字体目录中的所有字体文件，但保留README）
+fonts/*.ttf
+fonts/*.ttc
+fonts/*.otf
+fonts/*.woff
+fonts/*.woff2
