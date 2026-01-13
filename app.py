@@ -321,6 +321,13 @@ class MediaProcessor:
         input_path = Path(input_path).resolve()
         output_path = Path(output_path).resolve()
         
+        # 确保输入文件存在
+        if not input_path.exists():
+            raise FileNotFoundError(f"输入文件不存在: {input_path}")
+        
+        # 确保输出目录存在
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        
         ffmpeg_path = SystemUtils.get_ffmpeg_path()
         
         cmd = [
@@ -328,7 +335,27 @@ class MediaProcessor:
             "-ac", "1", "-ar", str(sample_rate),
             "-vn", "-f", "wav", str(output_path)
         ]
-        SystemUtils.run_cmd(cmd)
+        
+        try:
+            Logger.info(f"开始提取音频: {input_path} -> {output_path}")
+            SystemUtils.run_cmd(cmd)
+            
+            # 验证输出文件是否成功创建
+            if not output_path.exists():
+                raise RuntimeError(f"音频提取失败，输出文件未创建: {output_path}")
+            
+            # 检查文件大小
+            if output_path.stat().st_size == 0:
+                raise RuntimeError(f"音频提取失败，输出文件为空: {output_path}")
+            
+            Logger.info(f"音频提取成功: {output_path} (大小: {output_path.stat().st_size} 字节)")
+            
+        except Exception as e:
+            Logger.error(f"音频提取失败: {e}")
+            # 清理可能的不完整输出文件
+            if output_path.exists():
+                output_path.unlink()
+            raise
     
     @staticmethod
     def download_from_url(url: str, output_path: Path, timeout: int = 60):
@@ -1552,7 +1579,8 @@ class WhisperService:
                     actual_model, 
                     device=device, 
                     compute_type=compute_type,
-                    cpu_threads=self.config.CPU_THREADS
+                    cpu_threads=self.config.CPU_THREADS,
+                    local_files_only=bool(model_path)  # 只有在使用本地模型时才限制为本地文件
                 )
             )
             self.model_cache[cache_key] = model
@@ -1560,7 +1588,29 @@ class WhisperService:
             return model
         except Exception as e:
             Logger.error(f"Failed to load Whisper model: {e}")
-            raise
+            # 如果本地模型加载失败，尝试从网络下载
+            if model_path:
+                Logger.info(f"Failed to load local model, trying to download from network...")
+                try:
+                    loop = asyncio.get_event_loop()
+                    model = await loop.run_in_executor(
+                        None, 
+                        lambda: WhisperModel(
+                            model_name,  # 使用模型名称而不是路径
+                            device=device, 
+                            compute_type=compute_type,
+                            cpu_threads=self.config.CPU_THREADS,
+                            local_files_only=False  # 允许从网络下载
+                        )
+                    )
+                    self.model_cache[cache_key] = model
+                    Logger.info(f"Whisper model downloaded and loaded successfully: {model_name}")
+                    return model
+                except Exception as download_error:
+                    Logger.error(f"Failed to download model: {download_error}")
+                    raise Exception(f"无法加载本地模型且无法从网络下载: {e}\n网络下载错误: {download_error}")
+            else:
+                raise
     
     async def transcribe_basic(self, audio_path: str, beam_size: int = None, model_name: str = None) -> Dict[str, Any]:
         """
@@ -1656,8 +1706,14 @@ class WhisperService:
             return segments_list
             
         except Exception as e:
+            # 记录详细的错误信息
+            import traceback
+            error_details = traceback.format_exc()
             Logger.error(f"Advanced transcription error: {e}")
-            raise
+            Logger.error(f"Audio path: {audio_path}")
+            Logger.error(f"Model: {model_name}, Device: {device}, Task: {task}")
+            Logger.error(f"Error traceback: {error_details}")
+            raise Exception(f"转录失败: {str(e)}")
     
     def get_model_info(self) -> Dict[str, Any]:
         """获取模型信息"""
@@ -4030,7 +4086,7 @@ def create_gradio_interface():
                     segments = None
                     srt_path = None
                     bilingual_srt_path = None
-                    audio_path = None  # 初始化为None
+                    audio_for_transcription = None  # 用于转录的音频文件路径
                     
                     if generate_subtitle:
                         # 只有在需要生成字幕时才准备音频文件
@@ -4039,36 +4095,36 @@ def create_gradio_interface():
                         # 准备音频文件用于转录 - 使用与基础转录相同的处理方式
                         if audio_input:
                             # 直接使用上传的音频文件，让faster-whisper处理格式
-                            audio_path = audio_input
-                            Logger.info(f"使用上传的音频文件: {audio_path}")
+                            audio_for_transcription = audio_input
+                            Logger.info(f"使用上传的音频文件: {audio_for_transcription}")
                         elif local_input:
                             # 检查是否为视频文件，如果是则提取音频
                             if FileUtils.is_video_file(str(local_input)):
                                 # 从视频中提取音频
-                                audio_path = job_dir / "extracted_audio.wav"
+                                audio_for_transcription = job_dir / "extracted_audio.wav"
                                 try:
-                                    MediaProcessor.extract_audio(local_input, audio_path)
-                                    Logger.info(f"从视频中提取音频: {audio_path}")
+                                    MediaProcessor.extract_audio(local_input, audio_for_transcription)
+                                    Logger.info(f"从视频中提取音频: {audio_for_transcription}")
                                 except Exception as e:
                                     Logger.error(f"提取音频失败: {e}")
                                     raise Exception(f"无法从视频文件中提取音频: {e}")
                             else:
                                 # 直接使用音频文件
-                                audio_path = local_input
-                                Logger.info(f"使用本地音频文件: {audio_path}")
+                                audio_for_transcription = local_input
+                                Logger.info(f"使用本地音频文件: {audio_for_transcription}")
                         else:
                             # 在separate_audio模式下，如果没有audio_input或local_input，检查job中的文件
                             job = job_manager.get_job(job_id)
                             if job and "audio_input" in job.get("files", {}):
-                                audio_path = Path(job["files"]["audio_input"])
-                                Logger.info(f"使用job中的音频文件: {audio_path}")
+                                audio_for_transcription = Path(job["files"]["audio_input"])
+                                Logger.info(f"使用job中的音频文件: {audio_for_transcription}")
                             elif job and "video_input" in job.get("files", {}):
                                 # 从视频中提取音频
                                 video_path = Path(job["files"]["video_input"])
-                                audio_path = job_dir / "extracted_audio.wav"
+                                audio_for_transcription = job_dir / "extracted_audio.wav"
                                 try:
-                                    MediaProcessor.extract_audio(video_path, audio_path)
-                                    Logger.info(f"从job中的视频提取音频: {audio_path}")
+                                    MediaProcessor.extract_audio(video_path, audio_for_transcription)
+                                    Logger.info(f"从job中的视频提取音频: {audio_for_transcription}")
                                 except Exception as e:
                                     Logger.error(f"提取音频失败: {e}")
                                     raise Exception(f"无法从视频文件中提取音频: {e}")
@@ -4078,9 +4134,13 @@ def create_gradio_interface():
                         Logger.info("跳过音频提取，不生成字幕")
                     
                     if generate_subtitle:
+                        # 确保音频文件存在
+                        if not audio_for_transcription or not Path(audio_for_transcription).exists():
+                            raise Exception(f"音频文件不存在: {audio_for_transcription}")
+                        
                         # 转录音频
                         segments = await whisper_service.transcribe_advanced(
-                            str(audio_path), model_name, device, None, beam_size, "transcribe", word_timestamps
+                            str(audio_for_transcription), model_name, device, None, beam_size, "transcribe", word_timestamps
                         )
                         
                         # 调试：检查转录结果
@@ -4098,7 +4158,7 @@ def create_gradio_interface():
                         # 生成双语字幕
                         if bilingual:
                             translated_segments = await whisper_service.transcribe_advanced(
-                                audio_path, model_name, device, None, beam_size, "translate", word_timestamps
+                                str(audio_for_transcription), model_name, device, None, beam_size, "translate", word_timestamps
                             )
                             bilingual_srt_path = job_dir / f"{out_basename}_bilingual.srt"
                             SubtitleGenerator.write_srt(segments, bilingual_srt_path, bilingual=True, translated_segments=translated_segments)
@@ -4160,19 +4220,70 @@ def create_gradio_interface():
                         
                         # 第二步：应用视频效果（如果有配置）
                         if has_effects:
+                            # 创建临时视频文件用于效果处理
+                            temp_effects_video = job_dir / f"{out_basename}_temp_effects{base_video.suffix}"
                             video_output = job_dir / f"{out_basename}_effects{base_video.suffix}"
                             try:
                                 # 设置job_id到VideoEffectsProcessor，用于弹跳反弹状态管理
                                 VideoEffectsProcessor._current_job_id = job_id
                                 success = VideoEffectsProcessor.apply_video_effects(
-                                    base_for_effects, video_output,
+                                    base_for_effects, temp_effects_video,
                                     flower_config, image_config, watermark_config
                                 )
                                 # 清理job_id
                                 VideoEffectsProcessor._current_job_id = None
+                                
                                 if success:
+                                    # 使用FFmpeg将原始视频的音频合并到处理后的视频中
+                                    try:
+                                        ffmpeg_path = SystemUtils.get_ffmpeg_path()
+                                        import os
+                                        original_cwd = os.getcwd()
+                                        
+                                        # 切换到输出目录
+                                        output_dir = video_output.parent
+                                        os.chdir(output_dir)
+                                        
+                                        # 使用相对路径
+                                        base_video_rel = os.path.relpath(base_for_effects, output_dir).replace('\\', '/')
+                                        temp_video_rel = temp_effects_video.name
+                                        output_rel = video_output.name
+                                        
+                                        # 使用FFmpeg合并视频流和音频流
+                                        # -i base_video: 原始视频（包含音频）
+                                        # -i temp_effects_video: 处理后的视频（只有视频）
+                                        # -map 0:a:0 -map 1:v:0: 使用原始视频的音频和处理后的视频
+                                        cmd = [
+                                            ffmpeg_path, "-y",
+                                            "-i", base_video_rel,
+                                            "-i", temp_video_rel,
+                                            "-map", "0:a:0",  # 使用第一个输入的音频
+                                            "-map", "1:v:0",  # 使用第二个输入的视频
+                                            "-c:a", "copy",  # 直接复制音频
+                                            "-c:v", "copy",  # 直接复制视频
+                                            output_rel
+                                        ]
+                                        
+                                        # 如果是硬字幕模式，可能不需要保留音频
+                                        if generate_subtitle and burn_type == "hard":
+                                            # 硬字幕模式：直接使用处理后的视频
+                                            shutil.copy2(temp_effects_video, video_output)
+                                            Logger.info(f"视频效果应用成功（硬字幕模式，无音频）: {video_output}")
+                                        else:
+                                            # 非硬字幕模式：保留原始音频
+                                            SystemUtils.run_cmd(cmd)
+                                            Logger.info(f"视频效果应用成功，已保留原始音频: {video_output}")
+                                        
+                                        # 恢复工作目录
+                                        os.chdir(original_cwd)
+                                        
+                                    except Exception as merge_error:
+                                        Logger.error(f"音频合并失败: {merge_error}")
+                                        # 合并失败，直接使用处理后的视频
+                                        shutil.copy2(temp_effects_video, video_output)
+                                        Logger.warning(f"使用无音频版本: {video_output}")
+                                    
                                     job_manager.add_file(job_id, "video_effects", str(video_output))
-                                    Logger.info(f"视频效果应用成功: {video_output}")
                                 else:
                                     video_output = base_for_effects
                                     if generate_subtitle and burn_type == "hard":
@@ -4187,6 +4298,10 @@ def create_gradio_interface():
                                     job_manager.add_file(job_id, "video_hardsub", str(video_output))
                                 else:
                                     job_manager.add_file(job_id, "video_processed", str(video_output))
+                            finally:
+                                # 清理临时文件
+                                if temp_effects_video.exists():
+                                    temp_effects_video.unlink()
                         else:
                             # 没有视频效果
                             video_output = base_for_effects
@@ -4244,9 +4359,13 @@ def create_gradio_interface():
                     return None, status_html, {"error": str(processing_error)}, "", True, None, None, None
                     
             except Exception as e:
+                # 记录详细的错误堆栈信息
+                import traceback
+                error_details = traceback.format_exc()
                 Logger.error(f"高级转录处理异常: {e}")
+                Logger.error(f"错误堆栈: {error_details}")
                 status_html = f'<div style="color: #dc3545;">❌ 提交失败: {str(e)}</div>'
-                return None, status_html, {"error": str(e)}, "", True, None, None, None
+                return None, status_html, {"error": str(e), "traceback": error_details}, "", True, None, None, None
         
         def check_job_status(job_id):
             if not job_id:
