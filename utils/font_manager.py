@@ -97,14 +97,23 @@ class FontManager:
 
         if font_path is None:
             Logger.error(f"字体文件不存在: {font_name}")
+            Logger.info(f"可用的字体列表: {self._available_fonts}")
             return None
 
         try:
             font = ImageFont.truetype(str(font_path), size)
-            Logger.info(f"成功加载字体: {font_name} (大小: {size})")
+            Logger.info(f"成功加载字体: {font_name} (路径: {font_path}, 大小: {size})")
+            
+            # 测试字体是否支持中文
+            test_text = "测试中文"
+            bbox = font.getbbox(test_text)
+            Logger.info(f"字体测试: text='{test_text}', bbox={bbox}")
+            
             return font
         except Exception as e:
             Logger.error(f"加载字体失败: {font_name}, 错误: {e}")
+            import traceback
+            Logger.error(traceback.format_exc())
             return None
 
     def add_font(self, font_path: str) -> bool:

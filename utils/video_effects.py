@@ -38,6 +38,8 @@ class VideoEffectsProcessor:
             tuple: RGB元组 (R, G, B)
         """
         try:
+            Logger.info(f"parse_color - 输入: {color_input}, 类型: {type(color_input)}")
+            
             if color_input is None:
                 return (255, 255, 255)
 
@@ -46,13 +48,18 @@ class VideoEffectsProcessor:
                     # 检查是否是 Gradio 的 RGBA 格式（浮点数 0-1）
                     if all(0 <= c <= 1 for c in color_input[:3]):
                         # 转换为 0-255 的整数
-                        return tuple(int(c * 255) for c in color_input[:3])
+                        result = tuple(int(c * 255) for c in color_input[:3])
+                        Logger.info(f"parse_color - RGBA浮点数转换: {color_input} -> {result}")
+                        return result
                     else:
                         # 假设已经是 0-255 的整数
-                        return tuple(int(c) for c in color_input[:3])
+                        result = tuple(int(c) for c in color_input[:3])
+                        Logger.info(f"parse_color - RGB整数转换: {color_input} -> {result}")
+                        return result
 
             if isinstance(color_input, str):
                 color_input = color_input.strip().lower()
+                Logger.info(f"parse_color - 字符串处理: '{color_input}'")
 
                 if color_input.startswith('#'):
                     color_input = color_input[1:]
@@ -60,19 +67,27 @@ class VideoEffectsProcessor:
                         r = int(color_input[0:2], 16)
                         g = int(color_input[2:4], 16)
                         b = int(color_input[4:6], 16)
-                        return (r, g, b)
+                        result = (r, g, b)
+                        Logger.info(f"parse_color - 十六进制转换: #{color_input} -> {result}")
+                        return result
 
                 if color_input.startswith('rgb'):
                     import re
                     match = re.search(r'rgb\s*\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*\)', color_input)
                     if match:
-                        return tuple(map(int, match.groups()))
+                        result = tuple(map(int, match.groups()))
+                        Logger.info(f"parse_color - RGB字符串转换: {color_input} -> {result}")
+                        return result
 
                 if color_input.startswith('rgba'):
                     import re
-                    match = re.search(r'rgba\s*\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*,\s*[\d.]+\s*\)', color_input)
+                    # 匹配 RGBA 格式，支持整数和浮点数
+                    match = re.search(r'rgba\s*\(\s*([\d.]+)\s*,\s*([\d.]+)\s*,\s*([\d.]+)\s*,\s*([\d.]+)\s*\)', color_input)
                     if match:
-                        return tuple(map(int, match.groups()))
+                        r, g, b, a = map(float, match.groups())
+                        result = (int(r), int(g), int(b))
+                        Logger.info(f"parse_color - RGBA字符串转换: {color_input} -> {result}")
+                        return result
 
                 color_map = {
                     'black': (0, 0, 0),
@@ -87,12 +102,18 @@ class VideoEffectsProcessor:
                     'purple': (128, 0, 128),
                 }
 
-                return color_map.get(color_input, (255, 255, 255))
+                result = color_map.get(color_input, (255, 255, 255))
+                Logger.info(f"parse_color - 颜色名称转换: '{color_input}' -> {result}")
+                return result
 
-            return (255, 255, 255)
+            result = (255, 255, 255)
+            Logger.info(f"parse_color - 使用默认白色: {result}")
+            return result
 
         except Exception as e:
-            Logger.warning(f"颜色解析失败: {color_input}, 使用默认白色")
+            Logger.warning(f"颜色解析失败: {color_input}, 使用默认白色, 错误: {e}")
+            import traceback
+            Logger.error(traceback.format_exc())
             return (255, 255, 255)
 
     @staticmethod
@@ -393,23 +414,50 @@ class VideoEffectsProcessor:
 
             # 创建字体
             try:
-                if font_name and Path(font_name).exists():
-                    font = ImageFont.truetype(font_name, font_size)
+                # 优先使用 font_manager 加载字体
+                if font_name:
+                    font = font_manager.load_font(font_name, font_size)
+                    if font is not None:
+                        Logger.info(f"使用 font_manager 加载字体: {font_name}")
+                    else:
+                        Logger.warning(f"font_manager 加载字体失败: {font_name}, 尝试直接加载")
+                        # 尝试直接加载
+                        if Path(font_name).exists():
+                            font = ImageFont.truetype(font_name, font_size)
+                        else:
+                            # 尝试作为系统字体加载
+                            font = ImageFont.truetype(font_name, font_size)
                 else:
-                    # 尝试使用系统字体
-                    font_names = ['arial.ttf', 'Arial.ttf', 'simhei.ttf', 'msyh.ttc']
-                    font = None
-                    for fn in font_names:
-                        try:
-                            font = ImageFont.truetype(fn, font_size)
-                            break
-                        except:
-                            continue
-                    if font is None:
-                        font = ImageFont.load_default()
+                    # 使用默认字体
+                    default_font_name = font_manager.get_default_font()
+                    if default_font_name:
+                        font = font_manager.load_font(default_font_name, font_size)
+                        Logger.info(f"使用默认字体: {default_font_name}")
+                    else:
+                        Logger.warning("没有可用的字体文件，尝试使用系统字体")
+                        # 尝试使用系统字体
+                        font_names = ['simhei.ttf', 'msyh.ttc', 'simhei', 'Microsoft YaHei']
+                        font = None
+                        for fn in font_names:
+                            try:
+                                font = ImageFont.truetype(fn, font_size)
+                                Logger.info(f"成功加载系统字体: {fn}")
+                                break
+                            except:
+                                continue
+                        if font is None:
+                            font = ImageFont.load_default()
+                            Logger.warning("使用默认字体（可能不支持中文）")
+
+                # 验证字体对象
+                if font is None:
+                    raise ValueError("字体对象为 None")
+
             except Exception as e:
-                Logger.warning(f"字体加载失败，使用默认字体: {e}")
-                font = ImageFont.load_default()
+                Logger.error(f"字体加载异常: {e}")
+                import traceback
+                Logger.error(traceback.format_exc())
+                raise ValueError(f"字体加载失败: {e}")
 
             # 计算文本尺寸
             temp_img = Image.new('RGBA', (1, 1))
@@ -418,7 +466,9 @@ class VideoEffectsProcessor:
             text_width = bbox[2] - bbox[0]
             text_height = bbox[3] - bbox[1]
 
-            # 创建图像
+            Logger.info(f"文本尺寸: {text_width}x{text_height}")
+
+            # 创建图像 - 参考测试文件的方法
             if bg_color is None:
                 # 透明背景
                 img = Image.new('RGBA', (text_width, text_height), (0, 0, 0, 0))
@@ -431,14 +481,17 @@ class VideoEffectsProcessor:
             # 绘制描边
             if stroke_enabled and stroke_width > 0:
                 # 在多个方向绘制描边
+                Logger.info(f"绘制描边: stroke_enabled={stroke_enabled}, stroke_color={stroke_color}, stroke_width={stroke_width}")
                 for dx in range(-stroke_width, stroke_width + 1):
                     for dy in range(-stroke_width, stroke_width + 1):
                         if dx == 0 and dy == 0:
                             continue
                         draw.text((dx, dy), text, font=font, fill=(*stroke_color, 255))
 
-            # 绘制文字
+            # 绘制文字 - 参考测试文件的方法
             try:
+                # 使用 fill 参数指定颜色，格式为 (R, G, B, A)
+                Logger.info(f"绘制文字: text='{text}', text_color={text_color}, fill=(*text_color, 255)={(*text_color, 255)}")
                 draw.text((0, 0), text, font=font, fill=(*text_color, 255))
                 Logger.info(f"文字绘制成功: text='{text}', color={text_color}")
             except Exception as draw_error:
@@ -452,6 +505,7 @@ class VideoEffectsProcessor:
                 debug_dir = Path(__file__).parent.parent / "debug"
                 debug_dir.mkdir(exist_ok=True)
                 debug_pil_path = debug_dir / "flower_text_pil_debug.png"
+                # 直接保存 PIL 图像，保留透明通道
                 img.save(debug_pil_path)
                 Logger.info(f"原始PIL图像已保存: {debug_pil_path}")
 
@@ -813,12 +867,14 @@ class VideoEffectsProcessor:
             if flower_config and flower_config.get('text'):
                 # 获取文字颜色，支持多种格式
                 raw_text_color = flower_config.get('color', (255, 255, 255))
+                Logger.info(f"花字配置 - 原始颜色值: {raw_text_color}, 类型: {type(raw_text_color)}")
                 text_color = VideoEffectsProcessor.parse_color(raw_text_color)
                 Logger.info(f"花字文字颜色: {raw_text_color} -> {text_color}")
 
                 # 获取描边设置
                 stroke_enabled = flower_config.get('stroke_enabled', False)
                 raw_stroke_color = flower_config.get('stroke_color', (0, 0, 0))
+                Logger.info(f"花字配置 - 原始描边颜色值: {raw_stroke_color}, 类型: {type(raw_stroke_color)}")
                 stroke_color = VideoEffectsProcessor.parse_color(raw_stroke_color)
                 Logger.info(f"花字描边颜色: {raw_stroke_color} -> {stroke_color}")
                 stroke_width = flower_config.get('stroke_width', 2)
@@ -842,10 +898,22 @@ class VideoEffectsProcessor:
                         debug_dir = Path(output_path).parent / "debug"
                         debug_dir.mkdir(exist_ok=True)
                         debug_img_path = debug_dir / "flower_text_debug.png"
-                        cv2.imwrite(str(debug_img_path), flower_img)
+                        
+                        # 使用 PIL 保存以保留透明通道
+                        if flower_img.shape[2] == 4:  # BGRA
+                            # 转换为 RGBA
+                            flower_img_rgba = cv2.cvtColor(flower_img, cv2.COLOR_BGRA2RGBA)
+                            pil_img = Image.fromarray(flower_img_rgba)
+                        else:  # BGR
+                            flower_img_rgb = cv2.cvtColor(flower_img, cv2.COLOR_BGR2RGB)
+                            pil_img = Image.fromarray(flower_img_rgb)
+                        
+                        pil_img.save(debug_img_path)
                         Logger.info(f"花字调试图像已保存: {debug_img_path}")
                     except Exception as save_error:
                         Logger.warning(f"保存花字调试图像失败: {save_error}")
+                        import traceback
+                        Logger.error(traceback.format_exc())
                 else:
                     Logger.error("花字图像创建失败")
 
