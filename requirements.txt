@@ -11,3 +11,4 @@ opencv-python
 numpy
 torch
 Pillow>=10.0.0
+soundfile

@@ -1,0 +1,190 @@
+"""
+语音合成 UI 组件
+
+提供 VoxCPM 语音合成界面。
+"""
+
+import gradio as gr
+from typing import Tuple, Optional
+
+from modules.tts_module import tts_module
+from utils.logger import Logger
+
+
+def create_tts_interface() -> gr.Blocks:
+    """
+    创建语音合成界面
+
+    Returns:
+        gr.Blocks: Gradio 界面块
+    """
+    with gr.Blocks() as tts_interface:
+        gr.Markdown("## 🎤 VoxCPM 语音合成")
+        gr.Markdown("使用VoxCPM模型进行高质量语音合成，支持参考音频克隆声音")
+
+        with gr.Row():
+            with gr.Column():
+                # 输入区域
+                gr.Markdown("### 📝 输入文本")
+                text_input = gr.Textbox(
+                    value="VoxCPM is an innovative end-to-end TTS model...",
+                    label="目标文本",
+                    placeholder="请输入要合成的文本...",
+                    lines=3
+                )
+
+                gr.Markdown("### 🎵 参考音频（可选）")
+
+                with gr.Row():
+                    ref_input_type = gr.Radio(
+                        choices=["上传文件", "路径方式"],
+                        value="上传文件",
+                        label="参考音频输入方式"
+                    )
+
+                # 上传文件选项
+                with gr.Column(visible=True) as upload_col:
+                    prompt_wav_upload = gr.Audio(
+                        sources=["upload", "microphone"],
+                        type="filepath",
+                        label="参考音频 - 上传或录制一段音频作为声音参考"
+                    )
+
+                # 路径方式选项
+                with gr.Column(visible=False) as path_col:
+                    prompt_wav_path = gr.Textbox(
+                        label="参考音频路径",
+                        placeholder="请输入音频文件路径或URL"
+                    )
+
+                with gr.Row():
+                    prompt_text = gr.Textbox(
+                        value="",
+                        label="参考文本 - 可选：参考音频对应的文本内容",
+                        placeholder="如果上传了参考音频，可以输入对应的文本..."
+                    )
+
+                generate_btn = gr.Button("🎬 生成语音", variant="primary")
+
+            with gr.Column():
+                # 参数配置区域
+                gr.Markdown("### ⚙️ 参数配置")
+
+                cfg_value = gr.Slider(
+                    minimum=1.0,
+                    maximum=3.0,
+                    value=2.0,
+                    step=0.1,
+                    label="CFG值（引导强度）- 控制生成语音与目标文本的匹配程度"
+                )
+
+                inference_timesteps = gr.Slider(
+                    minimum=4,
+                    maximum=30,
+                    value=10,
+                    step=1,
+                    label="推理步数 - 影响生成质量和速度的平衡"
+                )
+
+                with gr.Row():
+                    do_normalize = gr.Checkbox(
+                        value=True,
+                        label="文本标准化 - 自动处理文本中的特殊字符和格式"
+                    )
+
+                    denoise = gr.Checkbox(
+                        value=True,
+                        label="音频降噪 - 对生成的音频进行降噪处理"
+                    )
+
+        # 输出区域
+        gr.Markdown("### 📤 输出结果")
+        with gr.Row():
+            audio_output = gr.Audio(label="生成的语音")
+            status_output = gr.Textbox(label="状态", interactive=False)
+
+        # 绑定事件
+        ref_input_type.change(
+            fn=lambda x: (gr.Column(visible=True), gr.Column(visible=False)) if x == "上传文件"
+            else (gr.Column(visible=False), gr.Column(visible=True)),
+            inputs=[ref_input_type],
+            outputs=[upload_col, path_col]
+        )
+
+        generate_btn.click(
+            fn=synthesize_tts,
+            inputs=[
+                text_input,
+                prompt_wav_upload,
+                prompt_wav_path,
+                prompt_text,
+                ref_input_type,
+                cfg_value,
+                inference_timesteps,
+                do_normalize,
+                denoise
+            ],
+            outputs=[audio_output, status_output]
+        )
+
+    return tts_interface
+
+
+async def synthesize_tts(
+    text: str,
+    prompt_wav_upload: Optional[str],
+    prompt_wav_path: Optional[str],
+    prompt_text: Optional[str],
+    ref_input_type: str,
+    cfg_value: float,
+    inference_timesteps: int,
+    do_normalize: bool,
+    denoise: bool
+) -> Tuple[Optional[str], str]:
+    """
+    执行语音合成
+
+    Args:
+        text: 要合成的文本
+        prompt_wav_upload: 上传的参考音频
+        prompt_wav_path: 参考音频路径
+        prompt_text: 参考文本
+        ref_input_type: 输入方式
+        cfg_value: CFG值
+        inference_timesteps: 推理步数
+        do_normalize: 是否标准化
+        denoise: 是否降噪
+
+    Returns:
+        Tuple[Optional[str], str]: (音频路径, 状态消息)
+    """
+    if not text:
+        return None, "请输入要合成的文本"
+
+    try:
+        # 确定参考音频路径
+        prompt_audio = None
+        if ref_input_type == "上传文件" and prompt_wav_upload:
+            prompt_audio = prompt_wav_upload
+        elif ref_input_type == "路径方式" and prompt_wav_path:
+            prompt_audio = prompt_wav_path
+
+        # 执行语音合成
+        result = await tts_module.synthesize(
+            text=text,
+            prompt_wav=prompt_audio,
+            prompt_text=prompt_text,
+            cfg_value=cfg_value,
+            inference_timesteps=inference_timesteps,
+            do_normalize=do_normalize,
+            denoise=denoise
+        )
+
+        if result["success"]:
+            return result["output_path"], "语音合成成功！"
+        else:
+            return None, f"合成失败: {result.get('error', '未知错误')}"
+
+    except Exception as e:
+        Logger.error(f"TTS synthesis error: {e}")
+        return None, f"合成失败: {str(e)}"

@@ -379,6 +379,7 @@ class VideoTransitionUI:
         """保存视频文件"""
         import cv2
         from datetime import datetime
+        from utils.video_utils import VideoUtils
         
         # 创建输出目录
         output_dir = Path("output")
@@ -388,14 +389,11 @@ class VideoTransitionUI:
         timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
         output_path = output_dir / f"transition_{timestamp}.mp4"
         
-        # 设置视频编码器
-        fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-        out = cv2.VideoWriter(
-            str(output_path),
-            fourcc,
-            fps,
-            (width, height)
-        )
+        # 使用视频工具类创建写入器
+        out = VideoUtils.create_video_writer(output_path, width, height, fps)
+        
+        if out is None:
+            raise RuntimeError(f"无法创建视频写入器: {output_path}")
         
         # 写入帧
         for i in range(tensor.shape[0]):
