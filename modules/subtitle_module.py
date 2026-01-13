@@ -44,7 +44,12 @@ class SubtitleModule:
         # 插图配置
         image_config: Optional[Dict[str, Any]] = None,
         # 水印配置
-        watermark_config: Optional[Dict[str, Any]] = None
+        watermark_config: Optional[Dict[str, Any]] = None,
+        # 时长基准配置
+        duration_reference: str = "video",  # "video" 或 "audio"，决定以哪个为准
+        # 音频语速调整配置
+        adjust_audio_speed: bool = False,  # 是否自动调整音频语速
+        audio_speed_factor: float = 1.0  # 音频语速调整倍数
     ) -> Dict[str, Any]:
         """
         高级字幕生成功能（完整版）
@@ -211,7 +216,56 @@ class SubtitleModule:
             if audio_input and local_input:
                 merged_video_path = job_dir / f"{out_basename}_merged{local_input.suffix}"
                 try:
-                    MediaProcessor.merge_audio_video(local_input, audio_input, merged_video_path)
+                    # 获取音频和视频时长
+                    audio_duration = MediaProcessor.get_media_duration(audio_input)
+                    video_duration = MediaProcessor.get_media_duration(local_input)
+                    
+                    Logger.info(f"音频时长: {audio_duration:.2f}秒, 视频时长: {video_duration:.2f}秒")
+                    Logger.info(f"时长基准: {duration_reference}")
+                    
+                    # 处理音频语速调整
+                    processed_audio = audio_input
+                    if duration_reference == "video" and adjust_audio_speed:
+                        # 以视频时长为准，且需要调整音频语速
+                        if audio_duration > 0 and video_duration > 0:
+                            # 计算需要的语速调整倍数
+                            if audio_speed_factor != 1.0:
+                                # 使用手动指定的倍数
+                                speed_factor = audio_speed_factor
+                                Logger.info(f"使用手动指定的语速调整倍数: {speed_factor}")
+                            else:
+                                # 自动计算倍数
+                                speed_factor = audio_duration / video_duration
+                                Logger.info(f"自动计算语速调整倍数: {speed_factor}")
+                            
+                            # 限制倍数在合理范围内
+                            speed_factor = max(0.5, min(2.0, speed_factor))
+                            
+                            # 调整音频语速
+                            adjusted_audio_path = job_dir / f"{out_basename}_adjusted_audio.wav"
+                            MediaProcessor.adjust_audio_speed(audio_input, adjusted_audio_path, speed_factor)
+                            processed_audio = adjusted_audio_path
+                            
+                            # 更新音频时长
+                            adjusted_duration = MediaProcessor.get_media_duration(processed_audio)
+                            Logger.info(f"调整后音频时长: {adjusted_duration:.2f}秒")
+                    
+                    # 根据时长基准参数决定处理方式
+                    if duration_reference == "audio" and audio_duration > video_duration:
+                        # 以音频时长为准，视频时长不足时以最后一帧补充
+                        Logger.info("以音频时长为准，视频时长不足，将补充最后一帧")
+                        MediaProcessor.merge_audio_video_with_duration(
+                            local_input, processed_audio, merged_video_path, 
+                            target_duration=audio_duration, extend_video=True
+                        )
+                    elif duration_reference == "video":
+                        # 以视频时长为准，不使用 -shortest 参数
+                        Logger.info("以视频时长为准，保持视频完整长度")
+                        MediaProcessor.merge_audio_video(local_input, processed_audio, merged_video_path, use_shortest=False)
+                    else:
+                        # 默认合并方式（兼容旧版本）
+                        MediaProcessor.merge_audio_video(local_input, processed_audio, merged_video_path)
+                    
                     base_video = merged_video_path
                     Logger.info(f"音视频合并成功: {merged_video_path}")
                 except Exception as e:

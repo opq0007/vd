@@ -90,6 +90,44 @@ def create_subtitle_interface() -> gr.Blocks:
                         step=1,
                         label="Beam Size"
                     )
+                
+                # 时长基准选择
+                with gr.Row():
+                    duration_reference = gr.Radio(
+                        choices=["video", "audio"],
+                        value="video",
+                        label="时长基准",
+                        info="当视频和音频同时存在时，决定以哪个时长为准"
+                    )
+                
+                # 音频语速调整选项
+                with gr.Row():
+                    adjust_audio_speed = gr.Checkbox(
+                        label="自动调整音频语速",
+                        value=False,
+                        info="当以视频时长为基准时，自动调整音频语速以匹配视频时长"
+                    )
+                    audio_speed_factor = gr.Slider(
+                        minimum=0.5,
+                        maximum=2.0,
+                        value=1.0,
+                        step=0.1,
+                        label="语速调整倍数",
+                        visible=False,
+                        info="手动指定音频语速调整倍数（0.5=慢一倍，2.0=快一倍）"
+                    )
+                
+                gr.Markdown("*注：选择'audio'时，如果视频时长不足，将自动以最后一帧画面补充*")
+                
+                # 显示/隐藏手动语速调整滑块
+                def update_audio_speed_visibility(adjust_speed):
+                    return gr.update(visible=adjust_speed)
+                
+                adjust_audio_speed.change(
+                    update_audio_speed_visibility,
+                    inputs=[adjust_audio_speed],
+                    outputs=[audio_speed_factor]
+                )
 
                 transcribe_adv_btn = gr.Button("🎬 生成字幕", variant="primary")
 
@@ -144,7 +182,10 @@ def create_subtitle_interface() -> gr.Blocks:
                 bilingual,
                 word_timestamps,
                 burn_type,
-                beam_size_adv
+                beam_size_adv,
+                duration_reference,
+                adjust_audio_speed,
+                audio_speed_factor
             ],
             outputs=[
                 job_id_display,
@@ -172,7 +213,10 @@ async def process_subtitle(
     bilingual: bool,
     word_timestamps: bool,
     burn_type: str,
-    beam_size: int
+    beam_size: int,
+    duration_reference: str,
+    adjust_audio_speed: bool,
+    audio_speed_factor: float
 ) -> Tuple[str, str, dict, Optional[str], Optional[str], Optional[str], str]:
     """
     处理字幕生成（纯字幕功能）
@@ -243,7 +287,10 @@ async def process_subtitle(
             out_basename=None,
             flower_config=None,  # 不包含花字
             image_config=None,   # 不包含插图
-            watermark_config=None  # 不包含水印
+            watermark_config=None,  # 不包含水印
+            duration_reference=duration_reference,  # 时长基准
+            adjust_audio_speed=adjust_audio_speed,  # 音频语速调整
+            audio_speed_factor=audio_speed_factor  # 语速调整倍数
         )
 
         # 生成任务ID

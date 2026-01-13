@@ -33,12 +33,44 @@ class MediaProcessor:
 
         ffmpeg_path = SystemUtils.get_ffmpeg_path()
 
-        cmd = [
-            ffmpeg_path, "-y", "-i", str(input_path),
-            "-ac", "1", "-ar", str(sample_rate),
-            "-vn", "-f", "wav", str(output_path)
-        ]
-        SystemUtils.run_cmd(cmd)
+        # 首先检查输入文件是否包含音频流
+        probe_cmd = [ffmpeg_path, "-i", str(input_path), "-hide_banner"]
+        result = subprocess.run(probe_cmd, capture_output=True, text=True)
+        
+        # 检查是否有音频流
+        has_audio = False
+        for line in result.stderr.split('\n'):
+            if 'Audio:' in line:
+                has_audio = True
+                break
+        
+        if not has_audio:
+            Logger.warning(f"输入文件没有音频流: {input_path}")
+            # 创建一个静音音频文件
+            duration = MediaProcessor.get_media_duration(input_path)
+            if duration > 0:
+                silence_cmd = [
+                    ffmpeg_path, "-y", "-f", "lavfi", "-i", f"anullsrc=r={sample_rate}:cl=mono",
+                    "-t", str(duration), str(output_path)
+                ]
+                SystemUtils.run_cmd(silence_cmd)
+                Logger.info(f"创建静音音频文件: {output_path}")
+            else:
+                # 如果无法获取时长，创建1秒的静音音频
+                silence_cmd = [
+                    ffmpeg_path, "-y", "-f", "lavfi", "-i", f"anullsrc=r={sample_rate}:cl=mono",
+                    "-t", "1", str(output_path)
+                ]
+                SystemUtils.run_cmd(silence_cmd)
+                Logger.info(f"创建1秒静音音频文件: {output_path}")
+        else:
+            # 提取音频
+            cmd = [
+                ffmpeg_path, "-y", "-i", str(input_path),
+                "-ac", "1", "-ar", str(sample_rate),
+                "-vn", "-f", "wav", str(output_path)
+            ]
+            SystemUtils.run_cmd(cmd)
 
     @staticmethod
     def download_from_url(url: str, output_path: Path, timeout: int = 60):
@@ -233,9 +265,10 @@ class MediaProcessor:
                     ass_content = f.read()
                 Logger.info(f"ASS 文件内容（前500字符）:\n{ass_content[:500]}")
 
+                # 使用更兼容的字幕滤镜参数
                 cmd = [
                     ffmpeg_path, "-y", "-i", video_rel,
-                    "-vf", f"ass={temp_ass_rel}",
+                    "-vf", f"subtitles={temp_ass_rel}",
                     "-c:a", "copy", "-c:v", "libx264", "-preset", "fast", "-crf", "23",
                     "-movflags", "+faststart",
                     output_rel
@@ -246,6 +279,22 @@ class MediaProcessor:
                 Logger.info(f"FFmpeg stdout: {proc.stdout}")
                 if proc.stderr:
                     Logger.info(f"FFmpeg stderr: {proc.stderr}")
+                    
+                # 如果使用 subtitles 滤镜失败，尝试使用 ass 滤镜
+                if proc.returncode != 0:
+                    Logger.warning("subtitles 滤镜失败，尝试使用 ass 滤镜")
+                    cmd = [
+                        ffmpeg_path, "-y", "-i", video_rel,
+                        "-vf", f"ass={temp_ass_rel}",
+                        "-c:a", "copy", "-c:v", "libx264", "-preset", "fast", "-crf", "23",
+                        "-movflags", "+faststart",
+                        output_rel
+                    ]
+                    Logger.info(f"执行备用 FFmpeg 命令: {' '.join(cmd)}")
+                    proc = subprocess.run(cmd, capture_output=True, text=True)
+                    Logger.info(f"备用 FFmpeg stdout: {proc.stdout}")
+                    if proc.stderr:
+                        Logger.info(f"备用 FFmpeg stderr: {proc.stderr}")
             finally:
                 os.chdir(original_cwd)
 
@@ -280,8 +329,9 @@ class MediaProcessor:
         ]
 
         try:
-            result = SystemUtils.run_cmd(cmd)
-            duration_match = re.search(r'Duration: (\d{2}):(\d{2}):(\d{2}\.\d{2})', result)
+            # 使用 subprocess.capture_output 来获取输出
+            result = subprocess.run(cmd, capture_output=True, text=True)
+            duration_match = re.search(r'Duration: (\d{2}):(\d{2}):(\d{2}\.\d{2})', result.stderr)
             if duration_match:
                 hours, minutes, seconds = map(float, duration_match.groups())
                 return hours * 3600 + minutes * 60 + seconds
@@ -293,7 +343,7 @@ class MediaProcessor:
             return 0.0
 
     @staticmethod
-    def merge_audio_video(video_path: Path, audio_path: Path, output_path: Path):
+    def merge_audio_video(video_path: Path, audio_path: Path, output_path: Path, use_shortest: bool = True):
         """
         将音频合并到视频中（替换原音频）
 
@@ -301,6 +351,7 @@ class MediaProcessor:
             video_path: 视频文件路径
             audio_path: 音频文件路径
             output_path: 输出视频文件路径
+            use_shortest: 是否使用最短时长（默认True，兼容旧版本）
         """
         video_path = Path(video_path).resolve()
         audio_path = Path(audio_path).resolve()
@@ -321,11 +372,166 @@ class MediaProcessor:
             video_rel = video_rel.replace('\\', '/')
             audio_rel = audio_rel.replace('\\', '/')
 
-            cmd = [
-                ffmpeg_path, "-y", "-i", video_rel, "-i", audio_rel,
-                "-c:v", "copy", "-c:a", "aac", "-map", "0:v:0", "-map", "1:a:0",
-                "-shortest", output_rel
-            ]
+            # 构建命令
+            if os.name == 'nt':  # Windows
+                # 在 Windows 上使用字符串命令
+                cmd_str = f'{ffmpeg_path} -y -i "{video_rel}" -i "{audio_rel}" -c:v copy -c:a aac -map 0:v:0 -map 1:a:0'
+                if use_shortest:
+                    cmd_str += ' -shortest'
+                cmd_str += f' "{output_rel}"'
+                
+                # 直接执行命令
+                proc = subprocess.run(cmd_str, shell=True, capture_output=True, text=True)
+                if proc.returncode != 0:
+                    raise RuntimeError(
+                        f"Command failed: {cmd_str}\n"
+                        f"stdout:\n{proc.stdout}\n"
+                        f"stderr:\n{proc.stderr}"
+                    )
+            else:
+                # 在 Linux/Mac 上使用列表命令
+                cmd = [
+                    ffmpeg_path, "-y", "-i", video_rel, "-i", audio_rel,
+                    "-c:v", "copy", "-c:a", "aac", "-map", "0:v:0", "-map", "1:a:0"
+                ]
+                
+                # 根据参数决定是否添加 -shortest
+                if use_shortest:
+                    cmd.append("-shortest")
+                
+                cmd.append(output_rel)
+                
+                SystemUtils.run_cmd(cmd)
+            Logger.info(f"音视频合并成功: {output_path}")
+
+        except Exception as e:
+            Logger.error(f"音视频合并失败: {e}")
+            raise
+        finally:
+            os.chdir(original_cwd)
+
+    @staticmethod
+    def adjust_audio_speed(audio_path: Path, output_path: Path, speed_factor: float) -> Path:
+        """
+        调整音频语速
+
+        Args:
+            audio_path: 输入音频文件路径
+            output_path: 输出音频文件路径
+            speed_factor: 语速调整倍数（>1加速，<1减速）
+
+        Returns:
+            Path: 调整后的音频文件路径
+        """
+        audio_path = Path(audio_path).resolve()
+        output_path = Path(output_path).resolve()
+        
+        ffmpeg_path = SystemUtils.get_ffmpeg_path()
+        
+        # 使用 atempo 滤镜调整音频速度
+        # atempo 滤镜的范围是 0.5 到 100.0
+        # 如果需要的倍数超出范围，可以级联多个 atempo 滤镜
+        if speed_factor < 0.5 or speed_factor > 2.0:
+            Logger.warning(f"语速调整倍数 {speed_factor} 超出推荐范围 (0.5-2.0)，可能影响音质")
+        
+        original_cwd = os.getcwd()
+        
+        try:
+            output_dir = output_path.parent
+            os.chdir(output_dir)
+            
+            audio_rel = os.path.relpath(audio_path, output_dir)
+            output_rel = output_path.name
+            
+            audio_rel = audio_rel.replace('\\', '/')
+            
+            if os.name == 'nt':  # Windows
+                # 构建FFmpeg命令
+                cmd_str = f'{ffmpeg_path} -y -i "{audio_rel}" -filter:a "atempo={speed_factor}" "{output_rel}"'
+                
+                Logger.info(f"调整音频语速: {speed_factor}x")
+                Logger.info(f"执行命令: {cmd_str}")
+                
+                # 执行命令
+                proc = subprocess.run(cmd_str, shell=True, capture_output=True, text=True)
+                if proc.returncode != 0:
+                    raise RuntimeError(
+                        f"Command failed: {cmd_str}\n"
+                        f"stdout:\n{proc.stdout}\n"
+                        f"stderr:\n{proc.stderr}"
+                    )
+            else:
+                # Linux/Mac 命令
+                cmd = [
+                    ffmpeg_path, "-y", "-i", audio_rel,
+                    "-filter:a", f"atempo={speed_factor}",
+                    output_rel
+                ]
+                
+                Logger.info(f"调整音频语速: {speed_factor}x")
+                SystemUtils.run_cmd(cmd)
+            
+            Logger.info(f"音频语速调整成功: {output_path}")
+            return output_path
+            
+        except Exception as e:
+            Logger.error(f"音频语速调整失败: {e}")
+            raise
+        finally:
+            os.chdir(original_cwd)
+
+    @staticmethod
+    def merge_audio_video_with_duration(video_path: Path, audio_path: Path, output_path: Path, 
+                                       target_duration: float, extend_video: bool = True):
+        """
+        将音频合并到视频中，支持指定目标时长和视频扩展
+
+        Args:
+            video_path: 视频文件路径
+            audio_path: 音频文件路径
+            output_path: 输出视频文件路径
+            target_duration: 目标时长（秒）
+            extend_video: 是否扩展视频长度（以最后一帧补充）
+        """
+        video_path = Path(video_path).resolve()
+        audio_path = Path(audio_path).resolve()
+        output_path = Path(output_path).resolve()
+
+        ffmpeg_path = SystemUtils.get_ffmpeg_path()
+
+        original_cwd = os.getcwd()
+
+        try:
+            output_dir = output_path.parent
+            os.chdir(output_dir)
+
+            video_rel = os.path.relpath(video_path, output_dir)
+            audio_rel = os.path.relpath(audio_path, output_dir)
+            output_rel = output_path.name
+
+            video_rel = video_rel.replace('\\', '/')
+            audio_rel = audio_rel.replace('\\', '/')
+
+            if extend_video:
+                # 使用 loop 和 duration 参数扩展视频
+                cmd = [
+                    ffmpeg_path, "-y", 
+                    "-stream_loop", "-1", "-i", video_rel,  # 无限循环视频
+                    "-i", audio_rel,
+                    "-c:v", "copy", "-c:a", "aac", 
+                    "-map", "0:v:0", "-map", "1:a:0",
+                    "-t", str(target_duration),  # 指定总时长
+                    "-avoid_negative_ts", "make_zero",  # 避免负时间戳
+                    output_rel
+                ]
+                Logger.info(f"扩展视频到目标时长: {target_duration:.2f}秒")
+            else:
+                # 标准合并，使用最短时长
+                cmd = [
+                    ffmpeg_path, "-y", "-i", video_rel, "-i", audio_rel,
+                    "-c:v", "copy", "-c:a", "aac", "-map", "0:v:0", "-map", "1:a:0",
+                    "-shortest", output_rel
+                ]
 
             SystemUtils.run_cmd(cmd)
             Logger.info(f"音视频合并成功: {output_path}")

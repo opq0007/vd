@@ -155,7 +155,7 @@ class SubtitleGenerator:
             outline = 4
 
         return {
-            'font_size': font_size,
+            'font_size': font_size * 2,  # 字体大小扩大一倍
             'margin': margin,
             'font_name': 'Arial',
             'primary_color': '&H00ffffff',
@@ -166,7 +166,7 @@ class SubtitleGenerator:
             'italic': 0,
             'border_style': 1,
             'outline': outline,
-            'shadow': 1,
+            'shadow': 2,  # 增加阴影效果
             'alignment': 2,
             'encoding': 1
         }
@@ -189,12 +189,13 @@ class SubtitleGenerator:
 
         # 完整的 ASS 文件头部
         header_content = f"""[Script Info]
+Title: Generated Subtitles
 ScriptType: v4.00+
 WrapStyle: 0
 ScaledBorderAndShadow: yes
 YCbCr Matrix: TV.709
 PlayResX: {video_width}
-PlayResY: 600
+PlayResY: {video_width // 16 * 9}  # 保持16:9比例
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
@@ -217,8 +218,9 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text"
                 time_match = re.match(r'(\d{1,2}):(\d{2}):(\d{2}),(\d{3}) --> (\d{1,2}):(\d{2}):(\d{2}),(\d{3})', lines[1])
                 if time_match:
                     h1, m1, s1, ms1, h2, m2, s2, ms2 = time_match.groups()
-                    start_time = f"{int(h1):01d}:{m1}:{s1}.{ms1}0"
-                    end_time = f"{int(h2):01d}:{m2}:{s2}.{ms2}0"
+                    # 修复时间戳格式：使用正确的ASS格式 H:MM:SS.CS (百分之一秒)
+                    start_time = f"{int(h1)}:{m1}:{s1}.{int(ms1)//10:02d}"
+                    end_time = f"{int(h2)}:{m2}:{s2}.{int(ms2)//10:02d}"
 
                     text = r'\N'.join(lines[2:])
                     text = text.replace('<', '&lt;').replace('>', '&gt;')
