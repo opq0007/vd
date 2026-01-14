@@ -67,11 +67,15 @@ class Config:
     VIDEO_EXTENSIONS = ['.mp4', '.avi', '.mov', '.mkv', '.wmv', '.flv', '.webm']
     AUDIO_EXTENSIONS = ['.mp3', '.wav', '.m4a', '.aac', '.ogg', '.flac']
 
-    # ==================== VoxCPM 配置 ====================
-    VOXCPM_MODEL_DIR = os.environ.get("VOXCPM_MODEL_DIR", os.path.join(MODELS_DIR, "OpenBMB__VoxCPM-0.5B"))
-    VOXCPM_REPO_ID = os.environ.get("VOXCPM_REPO_ID", "OpenBMB/VoxCPM-0.5B")
-    VOXCPM_DEFAULT_CFG = 2.0
-    VOXCPM_DEFAULT_TIMESTEPS = 10
+# ==================== VoxCPM-ONNX 配置 ====================
+    VOX_ONNX_MODELS_DIR = os.environ.get("VOX_ONNX_MODELS_DIR", os.path.join(MODELS_DIR, "onnx_models_v15"))
+    VOX_ONNX_DEVICE = os.environ.get("VOX_ONNX_DEVICE", "cpu")
+    VOX_ONNX_DEVICE_ID = int(os.environ.get("VOX_ONNX_DEVICE_ID", "0"))
+    VOX_ONNX_OPTIMIZE = os.environ.get("VOX_ONNX_OPTIMIZE", "1").lower() in ("1", "true", "yes")
+    VOX_ONNX_DTYPE = os.environ.get("VOX_ONNX_DTYPE", "fp32")
+    VOX_ONNX_SQLITE_PATH = os.environ.get("VOX_ONNX_SQLITE_PATH", os.path.join(MODELS_DIR, "voxcpm_ref.db"))
+    VOX_ONNX_DEFAULT_CFG = 2.0
+    VOX_ONNX_DEFAULT_TIMESTEPS = 5  # VoxCPM-1.5 默认使用 5 timesteps
 
     # ==================== ASR 模型配置 ====================
     ASR_MODEL_NAME = os.environ.get("ASR_MODEL_NAME", "SenseVoiceSmall")

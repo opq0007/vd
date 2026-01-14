@@ -5,13 +5,13 @@
 """
 
 from .whisper_service import WhisperService
-from .tts_module import TTSModule
+from .tts_onnx_module import TTSOnnxModule
 from .subtitle_module import SubtitleModule
 from .transition_module import TransitionModule
 
 __all__ = [
     'WhisperService',
-    'TTSModule',
+    'TTSOnnxModule',
     'SubtitleModule',
     'TransitionModule'
 ]

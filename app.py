@@ -29,7 +29,7 @@ from utils import Logger
 # 导入功能模块
 from modules import (
     whisper_service,
-    tts_module,
+    tts_onnx_module,
     subtitle_module,
     transition_module
 )
@@ -124,13 +124,30 @@ def create_gradio_interface():
                 gr.Markdown(f"[点击访问 ReDoc]({config.BASE_URL}/redoc)")
                 gr.Markdown("### 主要 API 端点")
                 gr.Markdown("""
+#### 认证相关
 - `POST /api/login` - 用户登录
-- `GET /api/model/info` - 获取模型信息
+
+#### 模型信息
+- `GET /api/model/info` - 获取 Whisper 模型信息
 - `GET /api/health` - 健康检查
+
+#### 语音识别 (Whisper)
 - `POST /api/transcribe/basic` - 基础语音转文字
-- `POST /api/transcribe/advanced` - 高级语音转文字
-- `POST /api/tts/synthesize` - 语音合成
-- `POST /api/subtitle/generate` - 生成字幕
+- `POST /api/transcribe/advanced` - 高级语音转文字（支持词级时间戳）
+
+#### 语音合成 (VoxCPM-1.5 ONNX)
+- `POST /api/tts/synthesize` - 语音合成（支持参考音频和预编码特征）
+- `POST /api/tts/save_ref` - 保存参考音频特征
+- `GET /api/tts/info` - 获取 TTS 模型信息
+- `GET /api/tts/ref_features` - 获取所有已保存的参考音频特征
+
+#### 文件操作
+- `GET /api/file/download?file_path=xxx` - 下载文件（返回二进制流）
+
+#### 字幕生成
+- `POST /api/subtitle/generate` - 生成视频字幕
+
+#### 视频转场
 - `POST /api/transition/apply` - 应用转场效果
 - `GET /api/transition/list` - 获取转场效果列表
 - `GET /api/transition/params/{transition_name}` - 获取转场参数
