@@ -53,7 +53,10 @@ class SubtitleModule:
         # 音频音量控制配置
         audio_volume: float = 1.0,  # 音频音量倍数（默认1.0，表示原音量）
         # 原音频保留配置
-        keep_original_audio: bool = True  # 是否保留原视频音频（默认True，保留并混合；False则替换原音频）
+        keep_original_audio: bool = True,  # 是否保留原视频音频（默认True，保留并混合；False则替换原音频）
+        # LLM 字幕纠错配置
+        enable_llm_correction: bool = False,  # 是否启用 LLM 字幕纠错
+        reference_text: Optional[str] = None  # 参考文本，用于字幕纠错
     ) -> Dict[str, Any]:
         """
         高级字幕生成功能（完整版）
@@ -80,6 +83,8 @@ class SubtitleModule:
             audio_speed_factor: 音频语速调整倍数
             audio_volume: 音频音量倍数（默认1.0，表示原音量；0.5表示降低一半音量；2.0表示提高一倍音量）
             keep_original_audio: 是否保留原视频音频（默认True，保留并混合；False则替换原音频）
+            enable_llm_correction: 是否启用 LLM 字幕纠错（使用智谱 AI）
+            reference_text: 参考文本，用于字幕纠错
 
         Returns:
             Dict[str, Any]: 字幕生成结果
@@ -246,6 +251,38 @@ class SubtitleModule:
             bilingual_srt_path = None
 
             if segments and generate_subtitle:
+                # LLM 字幕纠错
+                if enable_llm_correction and reference_text and reference_text.strip():
+                    try:
+                        from utils.llm_corrector import llm_corrector, SubtitleSegment
+
+                        Logger.info("开始 LLM 字幕纠错...")
+
+                        # 将 segments 转换为 SubtitleSegment 对象
+                        subtitle_segments = [
+                            SubtitleSegment(start=seg.start, end=seg.end, text=seg.text)
+                            for seg in segments
+                        ]
+
+                        # 调用 LLM 纠错
+                        corrected_segments = llm_corrector.correct_subtitle_segments(
+                            subtitle_segments,
+                            reference_text
+                        )
+
+                        # 更新 segments 的文本
+                        for i, corrected_seg in enumerate(corrected_segments):
+                            if i < len(segments):
+                                segments[i].text = corrected_seg.text
+
+                        Logger.info("LLM 字幕纠错完成")
+
+                    except Exception as e:
+                        Logger.error(f"LLM 字幕纠错失败: {e}")
+                        import traceback
+                        Logger.error(traceback.format_exc())
+
+                # 生成字幕文件
                 srt_path = job_dir / f"{out_basename}.srt"
                 SubtitleGenerator.write_srt(segments, srt_path, bilingual=False)
 

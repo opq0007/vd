@@ -294,6 +294,9 @@ def register_routes(app) -> None:
         audio_volume: float = Form(1.0),
         # 原音频保留配置
         keep_original_audio: bool = Form(True),
+        # LLM 字幕纠错配置
+        enable_llm_correction: bool = Form(False),
+        reference_text: str = Form(None),
         payload: Dict[str, Any] = Depends(verify_token)
     ) -> Dict[str, Any]:
         """
@@ -350,6 +353,8 @@ def register_routes(app) -> None:
             watermark_style: 水印样式
             audio_volume: 音频音量倍数（默认1.0，表示原音量；0.5表示降低一半音量；2.0表示提高一倍音量）
             keep_original_audio: 是否保留原视频音频（默认True，保留并混合；False则替换原音频）
+            enable_llm_correction: 是否启用 LLM 字幕纠错（使用智谱 AI）
+            reference_text: 参考文本，用于字幕纠错
             payload: 认证载荷
 
         Returns:
@@ -444,7 +449,9 @@ def register_routes(app) -> None:
             image_config=image_config,
             watermark_config=watermark_config,
             audio_volume=audio_volume,
-            keep_original_audio=keep_original_audio
+            keep_original_audio=keep_original_audio,
+            enable_llm_correction=enable_llm_correction,
+            reference_text=reference_text
         )
 
         return result

@@ -136,6 +136,33 @@ def create_subtitle_interface() -> gr.Blocks:
                         info="当同时提供视频和音频时，是否保留原视频的音频（勾选则混合，不勾选则替换）"
                     )
                 
+                # LLM 字幕纠错选项
+                with gr.Group():
+                    llm_correction_group = gr.Group()
+                    with llm_correction_group:
+                        enable_llm_correction = gr.Checkbox(
+                            label="启用 LLM 字幕纠错",
+                            value=False,
+                            info="使用智谱 AI 模型对生成的字幕进行智能纠错（需要配置 API Key）"
+                        )
+                        reference_text = gr.Textbox(
+                            label="参考文本",
+                            lines=5,
+                            placeholder="输入正确的文本内容，用于纠正字幕中的错字、漏字、多字等错误...",
+                            visible=False,
+                            info="提供正确的文本内容，系统将根据此文本纠正字幕错误"
+                        )
+                    
+                    # 显示/隐藏参考文本输入框
+                    def update_reference_text_visibility(enable_correction):
+                        return gr.update(visible=enable_correction)
+                    
+                    enable_llm_correction.change(
+                        update_reference_text_visibility,
+                        inputs=[enable_llm_correction],
+                        outputs=[reference_text]
+                    )
+                
                 gr.Markdown("*注：选择'audio'时，如果视频时长不足，将自动以最后一帧画面补充*")
                 
                 # 显示/隐藏手动语速调整滑块
@@ -206,7 +233,9 @@ def create_subtitle_interface() -> gr.Blocks:
                 adjust_audio_speed,
                 audio_speed_factor,
                 audio_volume,
-                keep_original_audio
+                keep_original_audio,
+                enable_llm_correction,
+                reference_text
             ],
             outputs=[
                 job_id_display,
@@ -239,7 +268,9 @@ async def process_subtitle(
     adjust_audio_speed: bool,
     audio_speed_factor: float,
     audio_volume: float,
-    keep_original_audio: bool
+    keep_original_audio: bool,
+    enable_llm_correction: bool,
+    reference_text: Optional[str]
 ) -> Tuple[str, str, dict, Optional[str], Optional[str], Optional[str], str]:
     """
     处理字幕生成（纯字幕功能）
@@ -315,7 +346,9 @@ async def process_subtitle(
             adjust_audio_speed=adjust_audio_speed,  # 音频语速调整
             audio_speed_factor=audio_speed_factor,  # 语速调整倍数
             audio_volume=audio_volume,  # 音频音量控制
-            keep_original_audio=keep_original_audio  # 保留原音频
+            keep_original_audio=keep_original_audio,  # 保留原音频
+            enable_llm_correction=enable_llm_correction,  # LLM 字幕纠错
+            reference_text=reference_text  # 参考文本
         )
 
         # 生成任务ID

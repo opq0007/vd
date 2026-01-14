@@ -84,6 +84,13 @@ class Config:
     LOG_LEVEL = os.environ.get("LOG_LEVEL", "INFO")
     LOG_FORMAT = '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 
+    # ==================== 智谱 AI 配置 ====================
+    ZHIPU_API_KEY = os.environ.get("ZHIPU_API_KEY", "")  # 智谱 AI API Key
+    ZHIPU_API_URL = "https://open.bigmodel.cn/api/paas/v4/chat/completions"
+    ZHIPU_MODEL = os.environ.get("ZHIPU_MODEL", "glm-4.5-flash")  # 默认使用 glm-4.5-flash 模型
+    ZHIPU_TEMPERATURE = 0.3  # 温度参数，越低越确定
+    ZHIPU_MAX_TOKENS = 8000  # 最大 token 数
+
     @classmethod
     def init_directories(cls):
         """初始化必要的目录"""
