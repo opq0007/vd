@@ -130,32 +130,32 @@ class SubtitleGenerator:
             outline = 2
         elif video_width <= 720:
             # 介于 SD 和 720p 之间
-            font_size = 22
+            font_size = 24
             margin = 10
             outline = 2
         elif video_width <= 1280:
             # 720p 高清 (1280x720)
-            font_size = 26
+            font_size = 40
             margin = 12
             outline = 3
         elif video_width <= 1920:
             # 1080p 全高清 (1920x1080)
-            font_size = 36
+            font_size = 45
             margin = 15
             outline = 3
         elif video_width <= 2560:
             # 2K 分辨率 (2560x1440)
-            font_size = 44
+            font_size = 50
             margin = 18
             outline = 4
         else:
             # 4K 超高清 (3840x2160) 及以上
-            font_size = 50
+            font_size = 60
             margin = 20
             outline = 4
 
         return {
-            'font_size': font_size * 2,  # 字体大小扩大一倍
+            'font_size': font_size,
             'margin': margin,
             'font_name': 'Arial',
             'primary_color': '&H00ffffff',

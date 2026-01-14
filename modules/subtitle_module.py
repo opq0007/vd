@@ -49,7 +49,14 @@ class SubtitleModule:
         duration_reference: str = "video",  # "video" 或 "audio"，决定以哪个为准
         # 音频语速调整配置
         adjust_audio_speed: bool = False,  # 是否自动调整音频语速
-        audio_speed_factor: float = 1.0  # 音频语速调整倍数
+        audio_speed_factor: float = 1.0,  # 音频语速调整倍数
+        # 音频音量控制配置
+        audio_volume: float = 1.0,  # 音频音量倍数（默认1.0，表示原音量）
+        # 原音频保留配置
+        keep_original_audio: bool = True,  # 是否保留原视频音频（默认True，保留并混合；False则替换原音频）
+        # LLM 字幕纠错配置
+        enable_llm_correction: bool = False,  # 是否启用 LLM 字幕纠错
+        reference_text: Optional[str] = None  # 参考文本，用于字幕纠错
     ) -> Dict[str, Any]:
         """
         高级字幕生成功能（完整版）
@@ -71,6 +78,13 @@ class SubtitleModule:
             flower_config: 花字配置
             image_config: 插图配置
             watermark_config: 水印配置
+            duration_reference: 时长基准（video/audio）
+            adjust_audio_speed: 是否自动调整音频语速
+            audio_speed_factor: 音频语速调整倍数
+            audio_volume: 音频音量倍数（默认1.0，表示原音量；0.5表示降低一半音量；2.0表示提高一倍音量）
+            keep_original_audio: 是否保留原视频音频（默认True，保留并混合；False则替换原音频）
+            enable_llm_correction: 是否启用 LLM 字幕纠错（使用智谱 AI）
+            reference_text: 参考文本，用于字幕纠错
 
         Returns:
             Dict[str, Any]: 字幕生成结果
@@ -237,6 +251,38 @@ class SubtitleModule:
             bilingual_srt_path = None
 
             if segments and generate_subtitle:
+                # LLM 字幕纠错
+                if enable_llm_correction and reference_text and reference_text.strip():
+                    try:
+                        from utils.llm_corrector import llm_corrector, SubtitleSegment
+
+                        Logger.info("开始 LLM 字幕纠错...")
+
+                        # 将 segments 转换为 SubtitleSegment 对象
+                        subtitle_segments = [
+                            SubtitleSegment(start=seg.start, end=seg.end, text=seg.text)
+                            for seg in segments
+                        ]
+
+                        # 调用 LLM 纠错
+                        corrected_segments = llm_corrector.correct_subtitle_segments(
+                            subtitle_segments,
+                            reference_text
+                        )
+
+                        # 更新 segments 的文本
+                        for i, corrected_seg in enumerate(corrected_segments):
+                            if i < len(segments):
+                                segments[i].text = corrected_seg.text
+
+                        Logger.info("LLM 字幕纠错完成")
+
+                    except Exception as e:
+                        Logger.error(f"LLM 字幕纠错失败: {e}")
+                        import traceback
+                        Logger.error(traceback.format_exc())
+
+                # 生成字幕文件
                 srt_path = job_dir / f"{out_basename}.srt"
                 SubtitleGenerator.write_srt(segments, srt_path, bilingual=False)
 
@@ -275,15 +321,15 @@ class SubtitleModule:
                         Logger.info("以音频时长为准，视频时长不足，将补充最后一帧")
                         MediaProcessor.merge_audio_video_with_duration(
                             local_input, processed_audio, merged_video_path, 
-                            target_duration=processed_audio_duration, extend_video=True
+                            target_duration=processed_audio_duration, extend_video=True, audio_volume=audio_volume, keep_original_audio=keep_original_audio
                         )
                     elif duration_reference == "video":
                         # 以视频时长为准，不使用 -shortest 参数
                         Logger.info("以视频时长为准，保持视频完整长度")
-                        MediaProcessor.merge_audio_video(local_input, processed_audio, merged_video_path, use_shortest=False)
+                        MediaProcessor.merge_audio_video(local_input, processed_audio, merged_video_path, use_shortest=False, audio_volume=audio_volume, keep_original_audio=keep_original_audio)
                     else:
                         # 默认合并方式（兼容旧版本）
-                        MediaProcessor.merge_audio_video(local_input, processed_audio, merged_video_path)
+                        MediaProcessor.merge_audio_video(local_input, processed_audio, merged_video_path, audio_volume=audio_volume, keep_original_audio=keep_original_audio)
                     
                     base_video = merged_video_path
                     Logger.info(f"音视频合并成功: {merged_video_path}")
