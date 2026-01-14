@@ -147,6 +147,10 @@ def create_gradio_interface():
 #### 字幕生成
 - `POST /api/subtitle/generate` - 生成视频字幕
 
+#### 视频合成
+- `POST /api/video/complete_process` - 一站式音视频合成+字幕生成+LLM纠错
+- `POST /api/video/tts_subtitle_video` - 文本转语音+字幕生成+音视频合成（一站式处理）
+
 #### 视频转场
 - `POST /api/transition/apply` - 应用转场效果
 - `GET /api/transition/list` - 获取转场效果列表

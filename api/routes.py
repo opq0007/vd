@@ -19,6 +19,7 @@ from modules.subtitle_module import subtitle_module
 from modules.transition_module import transition_module
 from modules.video_editor_module import video_editor_module
 from utils.logger import Logger
+from utils.media_processor import MediaProcessor
 
 
 # 定义请求模型
@@ -1056,6 +1057,187 @@ def register_routes(app) -> None:
             raise
         except Exception as e:
             Logger.error(f"一站式处理失败: {e}")
+            import traceback
+            Logger.error(traceback.format_exc())
+            raise HTTPException(status_code=500, detail=f"处理失败: {str(e)}")
+
+    @api_router.post("/video/tts_subtitle_video")
+    async def tts_subtitle_video_process(
+        video_path: str = Form(...),
+        text_content: str = Form(...),
+        feat_id: str = Form(None),
+        cfg_value: float = Form(2.0),
+        timesteps: int = Form(5),
+        max_len: int = Form(2000),
+        model_name: str = Form("small"),
+        device: str = Form("cpu"),
+        beam_size: int = Form(5),
+        audio_volume: float = Form(1.0),
+        keep_original_audio: bool = Form(False),
+        enable_llm_correction: bool = Form(True),
+        burn_subtitles: str = Form("hard"),
+        out_basename: str = Form(None),
+        payload: Dict[str, Any] = Depends(verify_token)
+    ) -> Dict[str, Any]:
+        """
+        文本转语音 + 字幕生成 + 音视频合成（一站式处理）
+
+        自动进行以下操作：
+        1. 使用 VoxCPM-1.5 ONNX 将文本转为语音（支持参考音频特征）
+        2. 生成字幕文件（SRT格式）
+        3. 如果启用LLM纠错，使用文本内容作为参考文本进行字幕纠错
+        4. 将生成的音频与视频合成
+        5. 如果需要，烧录字幕到视频
+
+        Args:
+            video_path: 视频文件路径
+            text_content: 要合成的文本内容
+            feat_id: 参考音频特征ID（可选）
+            cfg_value: CFG引导强度（默认2.0）
+            timesteps: Diffusion推理步数（默认5）
+            max_len: 最大生成长度（默认2000）
+            model_name: Whisper模型名称（默认small）
+            device: 设备类型（默认cpu）
+            beam_size: beam search大小（默认5）
+            audio_volume: 音频音量倍数（默认1.0）
+            keep_original_audio: 是否保留原视频音频（默认False）
+            enable_llm_correction: 是否启用LLM字幕纠错（默认True）
+            burn_subtitles: 字幕烧录类型 (none/hard，默认hard)
+            out_basename: 输出文件名前缀
+            payload: 认证载荷
+
+        Returns:
+            Dict[str, Any]: 处理结果，包含以下文件路径
+                - audio_file: 生成的音频文件路径
+                - subtitle_file: 生成的字幕文件路径
+                - output_video: 合成的视频文件路径
+        """
+        try:
+            from utils.file_utils import FileUtils
+            
+            # 验证视频文件路径
+            video_file = Path(video_path)
+            if not video_file.exists():
+                raise HTTPException(status_code=404, detail=f"视频文件不存在: {video_path}")
+
+            Logger.info(f"开始TTS+字幕+视频合成处理: 视频={video_path}, 文本长度={len(text_content)}, 特征ID={feat_id}")
+
+            # 创建任务目录
+            job_dir = FileUtils.create_job_dir()
+            
+            # 生成输出文件名
+            if out_basename is None:
+                out_basename = f"tts_video_{FileUtils.generate_job_id()}"
+            
+            # 1. 文本转语音（TTS）
+            Logger.info("步骤1: 开始文本转语音...")
+            audio_output_path = job_dir / f"{out_basename}_audio.wav"
+            
+            tts_result = await tts_onnx_module.synthesize(
+                text=text_content,
+                prompt_wav=None,
+                prompt_text=None,
+                feat_id=feat_id,
+                cfg_value=cfg_value,
+                min_len=2,
+                max_len=max_len,
+                timesteps=timesteps,
+                output_path=audio_output_path
+            )
+            
+            if not tts_result["success"]:
+                raise HTTPException(status_code=500, detail=f"TTS合成失败: {tts_result.get('error', '未知错误')}")
+            
+            audio_file = tts_result["output_path"]
+            Logger.info(f"TTS合成成功: {audio_file}, 时长: {tts_result.get('duration', 0):.2f}s")
+
+            # 2. 字幕生成
+            Logger.info("步骤2: 开始生成字幕...")
+            subtitle_result = await subtitle_module.generate_subtitles_advanced(
+                input_type="path",
+                video_path=video_path,
+                audio_path=audio_file,
+                model_name=model_name,
+                device=device,
+                generate_subtitle=True,
+                bilingual=False,
+                word_timestamps=False,
+                burn_subtitles="none",  # 先不烧录，等音视频合成后再处理
+                beam_size=beam_size,
+                out_basename=out_basename,
+                flower_config=None,
+                image_config=None,
+                watermark_config=None,
+                duration_reference="video",
+                adjust_audio_speed=True,
+                audio_speed_factor=1.0,
+                audio_volume=audio_volume,
+                keep_original_audio=keep_original_audio,
+                enable_llm_correction=enable_llm_correction,
+                reference_text=text_content  # 使用输入的文本内容作为参考文本
+            )
+            
+            if not subtitle_result.get("success", False):
+                raise HTTPException(status_code=500, detail=f"字幕生成失败: {subtitle_result.get('error', '未知错误')}")
+            
+            subtitle_file = subtitle_result.get("subtitle_path")
+            temp_video = subtitle_result.get("video_with_subtitle_path")
+            
+            if not subtitle_file:
+                raise HTTPException(status_code=500, detail="字幕生成失败：未找到字幕文件")
+            
+            Logger.info(f"字幕生成成功: {subtitle_file}, 临时视频: {temp_video}")
+
+            # 3. 音视频合成（带字幕）
+            Logger.info("步骤3: 开始音视频合成...")
+            
+            # 如果需要烧录字幕，重新处理
+            if burn_subtitles == "hard":
+                Logger.info("烧录字幕到视频...")
+                output_video_path = job_dir / f"{out_basename}_final.mp4"
+                
+                # 检查临时视频文件是否存在
+                if not temp_video or not Path(temp_video).exists():
+                    Logger.warning(f"临时视频文件不存在: {temp_video}，使用原始视频")
+                    temp_video = str(video_file)
+                
+                if not Path(temp_video).exists():
+                    raise HTTPException(status_code=500, detail=f"视频文件不存在: {temp_video}")
+                
+                # 烧录字幕
+                try:
+                    MediaProcessor.burn_hardsub(
+                        video_path=Path(temp_video),
+                        srt_path=Path(subtitle_file),
+                        output_path=output_video_path
+                    )
+                    output_video = str(output_video_path)
+                    Logger.info(f"字幕烧录成功: {output_video}")
+                except Exception as e:
+                    raise HTTPException(status_code=500, detail=f"字幕烧录失败: {str(e)}")
+            else:
+                # 不烧录字幕，直接使用合成的视频
+                if not temp_video or not Path(temp_video).exists():
+                    raise HTTPException(status_code=500, detail="音视频合成失败：未找到输出视频文件")
+                output_video = temp_video
+
+            Logger.info(f"TTS+字幕+视频合成处理完成")
+
+            # 返回所有生成的文件路径
+            return {
+                "success": True,
+                "audio_file": str(audio_file),
+                "subtitle_file": str(subtitle_file),
+                "output_video": str(output_video),
+                "out_basename": out_basename,
+                "duration": tts_result.get("duration", 0),
+                "sample_rate": tts_result.get("sample_rate", 0)
+            }
+
+        except HTTPException:
+            raise
+        except Exception as e:
+            Logger.error(f"TTS+字幕+视频合成处理失败: {e}")
             import traceback
             Logger.error(traceback.format_exc())
             raise HTTPException(status_code=500, detail=f"处理失败: {str(e)}")
