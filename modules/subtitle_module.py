@@ -49,7 +49,11 @@ class SubtitleModule:
         duration_reference: str = "video",  # "video" 或 "audio"，决定以哪个为准
         # 音频语速调整配置
         adjust_audio_speed: bool = False,  # 是否自动调整音频语速
-        audio_speed_factor: float = 1.0  # 音频语速调整倍数
+        audio_speed_factor: float = 1.0,  # 音频语速调整倍数
+        # 音频音量控制配置
+        audio_volume: float = 1.0,  # 音频音量倍数（默认1.0，表示原音量）
+        # 原音频保留配置
+        keep_original_audio: bool = True  # 是否保留原视频音频（默认True，保留并混合；False则替换原音频）
     ) -> Dict[str, Any]:
         """
         高级字幕生成功能（完整版）
@@ -71,6 +75,11 @@ class SubtitleModule:
             flower_config: 花字配置
             image_config: 插图配置
             watermark_config: 水印配置
+            duration_reference: 时长基准（video/audio）
+            adjust_audio_speed: 是否自动调整音频语速
+            audio_speed_factor: 音频语速调整倍数
+            audio_volume: 音频音量倍数（默认1.0，表示原音量；0.5表示降低一半音量；2.0表示提高一倍音量）
+            keep_original_audio: 是否保留原视频音频（默认True，保留并混合；False则替换原音频）
 
         Returns:
             Dict[str, Any]: 字幕生成结果
@@ -275,15 +284,15 @@ class SubtitleModule:
                         Logger.info("以音频时长为准，视频时长不足，将补充最后一帧")
                         MediaProcessor.merge_audio_video_with_duration(
                             local_input, processed_audio, merged_video_path, 
-                            target_duration=processed_audio_duration, extend_video=True
+                            target_duration=processed_audio_duration, extend_video=True, audio_volume=audio_volume, keep_original_audio=keep_original_audio
                         )
                     elif duration_reference == "video":
                         # 以视频时长为准，不使用 -shortest 参数
                         Logger.info("以视频时长为准，保持视频完整长度")
-                        MediaProcessor.merge_audio_video(local_input, processed_audio, merged_video_path, use_shortest=False)
+                        MediaProcessor.merge_audio_video(local_input, processed_audio, merged_video_path, use_shortest=False, audio_volume=audio_volume, keep_original_audio=keep_original_audio)
                     else:
                         # 默认合并方式（兼容旧版本）
-                        MediaProcessor.merge_audio_video(local_input, processed_audio, merged_video_path)
+                        MediaProcessor.merge_audio_video(local_input, processed_audio, merged_video_path, audio_volume=audio_volume, keep_original_audio=keep_original_audio)
                     
                     base_video = merged_video_path
                     Logger.info(f"音视频合并成功: {merged_video_path}")

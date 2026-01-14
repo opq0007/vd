@@ -117,6 +117,25 @@ def create_subtitle_interface() -> gr.Blocks:
                         info="手动指定音频语速调整倍数（0.5=慢一倍，2.0=快一倍）"
                     )
                 
+                # 音频音量控制选项
+                with gr.Row():
+                    audio_volume = gr.Slider(
+                        minimum=0.0,
+                        maximum=3.0,
+                        value=1.0,
+                        step=0.1,
+                        label="音频音量",
+                        info="控制合并时音频的音量大小（1.0=原音量，0.5=降低一半，2.0=提高一倍）"
+                    )
+                
+                # 原音频保留选项
+                with gr.Row():
+                    keep_original_audio = gr.Checkbox(
+                        label="保留原视频音频",
+                        value=True,
+                        info="当同时提供视频和音频时，是否保留原视频的音频（勾选则混合，不勾选则替换）"
+                    )
+                
                 gr.Markdown("*注：选择'audio'时，如果视频时长不足，将自动以最后一帧画面补充*")
                 
                 # 显示/隐藏手动语速调整滑块
@@ -185,7 +204,9 @@ def create_subtitle_interface() -> gr.Blocks:
                 beam_size_adv,
                 duration_reference,
                 adjust_audio_speed,
-                audio_speed_factor
+                audio_speed_factor,
+                audio_volume,
+                keep_original_audio
             ],
             outputs=[
                 job_id_display,
@@ -216,7 +237,9 @@ async def process_subtitle(
     beam_size: int,
     duration_reference: str,
     adjust_audio_speed: bool,
-    audio_speed_factor: float
+    audio_speed_factor: float,
+    audio_volume: float,
+    keep_original_audio: bool
 ) -> Tuple[str, str, dict, Optional[str], Optional[str], Optional[str], str]:
     """
     处理字幕生成（纯字幕功能）
@@ -290,7 +313,9 @@ async def process_subtitle(
             watermark_config=None,  # 不包含水印
             duration_reference=duration_reference,  # 时长基准
             adjust_audio_speed=adjust_audio_speed,  # 音频语速调整
-            audio_speed_factor=audio_speed_factor  # 语速调整倍数
+            audio_speed_factor=audio_speed_factor,  # 语速调整倍数
+            audio_volume=audio_volume,  # 音频音量控制
+            keep_original_audio=keep_original_audio  # 保留原音频
         )
 
         # 生成任务ID

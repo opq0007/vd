@@ -343,15 +343,17 @@ class MediaProcessor:
             return 0.0
 
     @staticmethod
-    def merge_audio_video(video_path: Path, audio_path: Path, output_path: Path, use_shortest: bool = True):
+    def merge_audio_video(video_path: Path, audio_path: Path, output_path: Path, use_shortest: bool = True, audio_volume: float = 1.0, keep_original_audio: bool = True):
         """
-        将音频合并到视频中（替换原音频）
+        将音频合并到视频中
 
         Args:
             video_path: 视频文件路径
             audio_path: 音频文件路径
             output_path: 输出视频文件路径
             use_shortest: 是否使用最短时长（默认True，兼容旧版本）
+            audio_volume: 音频音量倍数（默认1.0，表示原音量；0.5表示降低一半音量；2.0表示提高一倍音量）
+            keep_original_audio: 是否保留原视频音频（默认True，保留并混合；False则替换原音频）
         """
         video_path = Path(video_path).resolve()
         audio_path = Path(audio_path).resolve()
@@ -372,13 +374,36 @@ class MediaProcessor:
             video_rel = video_rel.replace('\\', '/')
             audio_rel = audio_rel.replace('\\', '/')
 
+            # 检查原视频是否有音频流
+            probe_cmd = [ffmpeg_path, "-i", str(video_path), "-hide_banner"]
+            probe_result = subprocess.run(probe_cmd, capture_output=True, text=True)
+            has_audio = 'Audio:' in probe_result.stderr
+
             # 构建命令
             if os.name == 'nt':  # Windows
-                # 在 Windows 上使用字符串命令
-                cmd_str = f'{ffmpeg_path} -y -i "{video_rel}" -i "{audio_rel}" -c:v copy -c:a aac -map 0:v:0 -map 1:a:0'
-                if use_shortest:
-                    cmd_str += ' -shortest'
-                cmd_str += f' "{output_rel}"'
+                if keep_original_audio and has_audio:
+                    # 保留原音频并混合
+                    Logger.info("保留原视频音频，与新音频混合")
+                    cmd_str = f'{ffmpeg_path} -y -i "{video_rel}" -i "{audio_rel}" -filter_complex "[0:a][1:a]amix=inputs=2:duration=first:dropout_transition=2,volume={audio_volume}[aout]" -map 0:v:0 -map "[aout]" -c:v copy -c:a aac'
+                    if use_shortest:
+                        cmd_str += ' -shortest'
+                    cmd_str += f' "{output_rel}"'
+                else:
+                    # 替换原音频
+                    if has_audio:
+                        Logger.info("使用新音频替换原视频音频")
+                    else:
+                        Logger.info("原视频无音频，直接添加新音频")
+                    cmd_str = f'{ffmpeg_path} -y -i "{video_rel}" -i "{audio_rel}" -c:v copy -c:a aac -map 0:v:0 -map 1:a:0'
+                    
+                    # 如果音量不是1.0，添加音量滤镜
+                    if audio_volume != 1.0:
+                        cmd_str += f' -filter:a "volume={audio_volume}"'
+                        Logger.info(f"应用音频音量调整: {audio_volume}x")
+                    
+                    if use_shortest:
+                        cmd_str += ' -shortest'
+                    cmd_str += f' "{output_rel}"'
                 
                 # 直接执行命令
                 proc = subprocess.run(cmd_str, shell=True, capture_output=True, text=True)
@@ -390,16 +415,39 @@ class MediaProcessor:
                     )
             else:
                 # 在 Linux/Mac 上使用列表命令
-                cmd = [
-                    ffmpeg_path, "-y", "-i", video_rel, "-i", audio_rel,
-                    "-c:v", "copy", "-c:a", "aac", "-map", "0:v:0", "-map", "1:a:0"
-                ]
-                
-                # 根据参数决定是否添加 -shortest
-                if use_shortest:
-                    cmd.append("-shortest")
-                
-                cmd.append(output_rel)
+                if keep_original_audio and has_audio:
+                    # 保留原音频并混合
+                    Logger.info("保留原视频音频，与新音频混合")
+                    cmd = [
+                        ffmpeg_path, "-y", "-i", video_rel, "-i", audio_rel,
+                        "-filter_complex", f"[0:a][1:a]amix=inputs=2:duration=first:dropout_transition=2,volume={audio_volume}[aout]",
+                        "-map", "0:v:0", "-map", "[aout]",
+                        "-c:v", "copy", "-c:a", "aac"
+                    ]
+                    if use_shortest:
+                        cmd.append("-shortest")
+                    cmd.append(output_rel)
+                else:
+                    # 替换原音频
+                    if has_audio:
+                        Logger.info("使用新音频替换原视频音频")
+                    else:
+                        Logger.info("原视频无音频，直接添加新音频")
+                    cmd = [
+                        ffmpeg_path, "-y", "-i", video_rel, "-i", audio_rel,
+                        "-c:v", "copy", "-c:a", "aac", "-map", "0:v:0", "-map", "1:a:0"
+                    ]
+                    
+                    # 如果音量不是1.0，添加音量滤镜
+                    if audio_volume != 1.0:
+                        cmd.extend(["-filter:a", f"volume={audio_volume}"])
+                        Logger.info(f"应用音频音量调整: {audio_volume}x")
+                    
+                    # 根据参数决定是否添加 -shortest
+                    if use_shortest:
+                        cmd.append("-shortest")
+                    
+                    cmd.append(output_rel)
                 
                 SystemUtils.run_cmd(cmd)
             Logger.info(f"音视频合并成功: {output_path}")
@@ -482,7 +530,7 @@ class MediaProcessor:
 
     @staticmethod
     def merge_audio_video_with_duration(video_path: Path, audio_path: Path, output_path: Path, 
-                                       target_duration: float, extend_video: bool = True):
+                                       target_duration: float, extend_video: bool = True, audio_volume: float = 1.0, keep_original_audio: bool = True):
         """
         将音频合并到视频中，支持指定目标时长和视频扩展
 
@@ -492,6 +540,8 @@ class MediaProcessor:
             output_path: 输出视频文件路径
             target_duration: 目标时长（秒）
             extend_video: 是否扩展视频长度（以最后一帧补充）
+            audio_volume: 音频音量倍数（默认1.0，表示原音量；0.5表示降低一半音量；2.0表示提高一倍音量）
+            keep_original_audio: 是否保留原视频音频（默认True，保留并混合；False则替换原音频）
         """
         video_path = Path(video_path).resolve()
         audio_path = Path(audio_path).resolve()
@@ -512,26 +562,80 @@ class MediaProcessor:
             video_rel = video_rel.replace('\\', '/')
             audio_rel = audio_rel.replace('\\', '/')
 
+            # 检查原视频是否有音频流
+            probe_cmd = [ffmpeg_path, "-i", str(video_path), "-hide_banner"]
+            probe_result = subprocess.run(probe_cmd, capture_output=True, text=True)
+            has_audio = 'Audio:' in probe_result.stderr
+
             if extend_video:
                 # 使用 loop 和 duration 参数扩展视频
-                cmd = [
-                    ffmpeg_path, "-y", 
-                    "-stream_loop", "-1", "-i", video_rel,  # 无限循环视频
-                    "-i", audio_rel,
-                    "-c:v", "copy", "-c:a", "aac", 
-                    "-map", "0:v:0", "-map", "1:a:0",
-                    "-t", str(target_duration),  # 指定总时长
-                    "-avoid_negative_ts", "make_zero",  # 避免负时间戳
-                    output_rel
-                ]
+                if keep_original_audio and has_audio:
+                    # 保留原音频并混合
+                    Logger.info("保留原视频音频，与新音频混合")
+                    cmd = [
+                        ffmpeg_path, "-y", 
+                        "-stream_loop", "-1", "-i", video_rel,  # 无限循环视频
+                        "-i", audio_rel,
+                        "-filter_complex", f"[0:a][1:a]amix=inputs=2:duration=first:dropout_transition=2,volume={audio_volume}[aout]",
+                        "-map", "0:v:0", "-map", "[aout]",
+                        "-c:v", "copy", "-c:a", "aac",
+                        "-t", str(target_duration),  # 指定总时长
+                        "-avoid_negative_ts", "make_zero",  # 避免负时间戳
+                        output_rel
+                    ]
+                else:
+                    # 替换原音频
+                    if has_audio:
+                        Logger.info("使用新音频替换原视频音频")
+                    else:
+                        Logger.info("原视频无音频，直接添加新音频")
+                    cmd = [
+                        ffmpeg_path, "-y", 
+                        "-stream_loop", "-1", "-i", video_rel,  # 无限循环视频
+                        "-i", audio_rel,
+                        "-c:v", "copy", "-c:a", "aac", 
+                        "-map", "0:v:0", "-map", "1:a:0",
+                        "-t", str(target_duration),  # 指定总时长
+                        "-avoid_negative_ts", "make_zero",  # 避免负时间戳
+                        output_rel
+                    ]
+                    
+                    # 如果音量不是1.0，添加音量滤镜
+                    if audio_volume != 1.0:
+                        cmd.insert(-1, "-filter:a")
+                        cmd.insert(-1, f"volume={audio_volume}")
+                        Logger.info(f"应用音频音量调整: {audio_volume}x")
+                
                 Logger.info(f"扩展视频到目标时长: {target_duration:.2f}秒")
             else:
                 # 标准合并，使用最短时长
-                cmd = [
-                    ffmpeg_path, "-y", "-i", video_rel, "-i", audio_rel,
-                    "-c:v", "copy", "-c:a", "aac", "-map", "0:v:0", "-map", "1:a:0",
-                    "-shortest", output_rel
-                ]
+                if keep_original_audio and has_audio:
+                    # 保留原音频并混合
+                    Logger.info("保留原视频音频，与新音频混合")
+                    cmd = [
+                        ffmpeg_path, "-y", "-i", video_rel, "-i", audio_rel,
+                        "-filter_complex", f"[0:a][1:a]amix=inputs=2:duration=first:dropout_transition=2,volume={audio_volume}[aout]",
+                        "-map", "0:v:0", "-map", "[aout]",
+                        "-c:v", "copy", "-c:a", "aac",
+                        "-shortest", output_rel
+                    ]
+                else:
+                    # 替换原音频
+                    if has_audio:
+                        Logger.info("使用新音频替换原视频音频")
+                    else:
+                        Logger.info("原视频无音频，直接添加新音频")
+                    cmd = [
+                        ffmpeg_path, "-y", "-i", video_rel, "-i", audio_rel,
+                        "-c:v", "copy", "-c:a", "aac", "-map", "0:v:0", "-map", "1:a:0",
+                        "-shortest", output_rel
+                    ]
+                    
+                    # 如果音量不是1.0，添加音量滤镜
+                    if audio_volume != 1.0:
+                        cmd.insert(-1, "-filter:a")
+                        cmd.insert(-1, f"volume={audio_volume}")
+                        Logger.info(f"应用音频音量调整: {audio_volume}x")
 
             SystemUtils.run_cmd(cmd)
             Logger.info(f"音视频合并成功: {output_path}")

@@ -290,6 +290,10 @@ def register_routes(app) -> None:
         watermark_start_time: str = Form("00:00:00"),
         watermark_end_time: str = Form("99:59:59"),
         watermark_style: str = Form("半透明浮动"),
+        # 音频音量控制
+        audio_volume: float = Form(1.0),
+        # 原音频保留配置
+        keep_original_audio: bool = Form(True),
         payload: Dict[str, Any] = Depends(verify_token)
     ) -> Dict[str, Any]:
         """
@@ -344,6 +348,8 @@ def register_routes(app) -> None:
             watermark_start_time: 水印起始时间
             watermark_end_time: 水印结束时间
             watermark_style: 水印样式
+            audio_volume: 音频音量倍数（默认1.0，表示原音量；0.5表示降低一半音量；2.0表示提高一倍音量）
+            keep_original_audio: 是否保留原视频音频（默认True，保留并混合；False则替换原音频）
             payload: 认证载荷
 
         Returns:
@@ -436,7 +442,9 @@ def register_routes(app) -> None:
             out_basename=out_basename,
             flower_config=flower_config,
             image_config=image_config,
-            watermark_config=watermark_config
+            watermark_config=watermark_config,
+            audio_volume=audio_volume,
+            keep_original_audio=keep_original_audio
         )
 
         return result
