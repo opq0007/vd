@@ -156,10 +156,63 @@ class SubtitleModule:
                     Logger.warning("Path模式: video_path和audio_path都为空！")
                     raise ValueError("请提供视频或音频文件路径")
 
+            
+
+            # 处理视频输出
+            video_output = None
+            base_video = None
+
+            # 确定基础视频文件
+            if local_input and FileUtils.is_video_file(str(local_input)):
+                base_video = local_input
+
+            # 处理音频语速调整（在转录之前完成）
+            processed_audio = audio_input
+            adjusted_audio_for_transcription = None
+            
+            if audio_input and local_input:
+                # 获取音频和视频时长
+                audio_duration = MediaProcessor.get_media_duration(audio_input)
+                video_duration = MediaProcessor.get_media_duration(local_input)
+                
+                Logger.info(f"音频时长: {audio_duration:.2f}秒, 视频时长: {video_duration:.2f}秒")
+                Logger.info(f"时长基准: {duration_reference}")
+                
+                # 处理音频语速调整
+                if duration_reference == "video" and adjust_audio_speed:
+                    # 以视频时长为准，且需要调整音频语速
+                    if audio_duration > 0 and video_duration > 0:
+                        # 计算需要的语速调整倍数
+                        if audio_speed_factor != 1.0:
+                            # 使用手动指定的倍数
+                            speed_factor = audio_speed_factor
+                            Logger.info(f"使用手动指定的语速调整倍数: {speed_factor}")
+                        else:
+                            # 自动计算倍数
+                            speed_factor = audio_duration / video_duration
+                            Logger.info(f"自动计算语速调整倍数: {speed_factor}")
+                        
+                        # 限制倍数在合理范围内
+                        speed_factor = max(0.5, min(2.0, speed_factor))
+                        
+                        # 调整音频语速
+                        adjusted_audio_path = job_dir / f"{out_basename}_adjusted_audio.wav"
+                        MediaProcessor.adjust_audio_speed(audio_input, adjusted_audio_path, speed_factor)
+                        processed_audio = adjusted_audio_path
+                        adjusted_audio_for_transcription = adjusted_audio_path
+                        
+                        # 更新音频时长
+                        adjusted_duration = MediaProcessor.get_media_duration(processed_audio)
+                        Logger.info(f"调整后音频时长: {adjusted_duration:.2f}秒")
+
             # 准备音频文件用于转录
             audio_for_transcription = None
             if generate_subtitle:
-                if audio_input:
+                # 优先使用调整后的音频进行转录
+                if adjusted_audio_for_transcription:
+                    audio_for_transcription = adjusted_audio_for_transcription
+                    Logger.info("使用调整后的音频进行语音识别，确保字幕时间轴与视频同步")
+                elif audio_input:
                     audio_for_transcription = audio_input
                 elif local_input and FileUtils.is_video_file(str(local_input)):
                     audio_for_transcription = job_dir / "audio.wav"
@@ -204,59 +257,25 @@ class SubtitleModule:
                         translated_segments=translated_segments
                     )
 
-            # 处理视频输出
-            video_output = None
-            base_video = None
-
-            # 确定基础视频文件
-            if local_input and FileUtils.is_video_file(str(local_input)):
-                base_video = local_input
-
             # 合并音视频（如果需要）
             if audio_input and local_input:
                 merged_video_path = job_dir / f"{out_basename}_merged{local_input.suffix}"
                 try:
-                    # 获取音频和视频时长
-                    audio_duration = MediaProcessor.get_media_duration(audio_input)
+                    # 重新获取音频和视频时长（可能在音频调整后发生变化）
+                    if processed_audio:
+                        processed_audio_duration = MediaProcessor.get_media_duration(processed_audio)
+                    else:
+                        processed_audio_duration = MediaProcessor.get_media_duration(audio_input)
+                    
                     video_duration = MediaProcessor.get_media_duration(local_input)
                     
-                    Logger.info(f"音频时长: {audio_duration:.2f}秒, 视频时长: {video_duration:.2f}秒")
-                    Logger.info(f"时长基准: {duration_reference}")
-                    
-                    # 处理音频语速调整
-                    processed_audio = audio_input
-                    if duration_reference == "video" and adjust_audio_speed:
-                        # 以视频时长为准，且需要调整音频语速
-                        if audio_duration > 0 and video_duration > 0:
-                            # 计算需要的语速调整倍数
-                            if audio_speed_factor != 1.0:
-                                # 使用手动指定的倍数
-                                speed_factor = audio_speed_factor
-                                Logger.info(f"使用手动指定的语速调整倍数: {speed_factor}")
-                            else:
-                                # 自动计算倍数
-                                speed_factor = audio_duration / video_duration
-                                Logger.info(f"自动计算语速调整倍数: {speed_factor}")
-                            
-                            # 限制倍数在合理范围内
-                            speed_factor = max(0.5, min(2.0, speed_factor))
-                            
-                            # 调整音频语速
-                            adjusted_audio_path = job_dir / f"{out_basename}_adjusted_audio.wav"
-                            MediaProcessor.adjust_audio_speed(audio_input, adjusted_audio_path, speed_factor)
-                            processed_audio = adjusted_audio_path
-                            
-                            # 更新音频时长
-                            adjusted_duration = MediaProcessor.get_media_duration(processed_audio)
-                            Logger.info(f"调整后音频时长: {adjusted_duration:.2f}秒")
-                    
                     # 根据时长基准参数决定处理方式
-                    if duration_reference == "audio" and audio_duration > video_duration:
+                    if duration_reference == "audio" and processed_audio_duration > video_duration:
                         # 以音频时长为准，视频时长不足时以最后一帧补充
                         Logger.info("以音频时长为准，视频时长不足，将补充最后一帧")
                         MediaProcessor.merge_audio_video_with_duration(
                             local_input, processed_audio, merged_video_path, 
-                            target_duration=audio_duration, extend_video=True
+                            target_duration=processed_audio_duration, extend_video=True
                         )
                     elif duration_reference == "video":
                         # 以视频时长为准，不使用 -shortest 参数

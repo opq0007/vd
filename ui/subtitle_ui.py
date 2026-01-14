@@ -74,7 +74,7 @@ def create_subtitle_interface() -> gr.Blocks:
                         value=True,
                         info="取消勾选则仅进行音频处理"
                     )
-                    bilingual = gr.Checkbox(label="双语字幕", value=True)
+                    bilingual = gr.Checkbox(label="双语字幕", value=False)
                     word_timestamps = gr.Checkbox(label="词级时间戳", value=False)
 
                 with gr.Row():
