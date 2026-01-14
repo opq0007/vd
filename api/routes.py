@@ -7,13 +7,14 @@ API 路由模块
 from pathlib import Path
 from typing import Dict, Any
 
-from fastapi import APIRouter, File, UploadFile, Form, HTTPException, Depends
+from fastapi import APIRouter, File, UploadFile, Form, HTTPException, Depends, Query
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 from config import config
 from api.auth import AuthService, verify_token
 from modules.whisper_service import whisper_service
-from modules.tts_module import tts_module
+from modules.tts_onnx_module import tts_onnx_module
 from modules.subtitle_module import subtitle_module
 from modules.transition_module import transition_module
 from modules.video_editor_module import video_editor_module
@@ -190,23 +191,25 @@ def register_routes(app) -> None:
         text: str = Form(...),
         prompt_wav: UploadFile = File(None),
         prompt_text: str = Form(None),
+        feat_id: str = Form(None),
         cfg_value: float = Form(2.0),
-        inference_timesteps: int = Form(10),
-        do_normalize: bool = Form(True),
-        denoise: bool = Form(True),
+        min_len: int = Form(2),
+        max_len: int = Form(2000),
+        timesteps: int = Form(5),
         payload: Dict[str, Any] = Depends(verify_token)
     ) -> Dict[str, Any]:
         """
-        语音合成
+        VoxCPM-1.5 ONNX 语音合成
 
         Args:
             text: 要合成的文本
             prompt_wav: 参考音频文件
             prompt_text: 参考文本
+            feat_id: 预编码特征 ID
             cfg_value: CFG引导强度
-            inference_timesteps: 推理步数
-            do_normalize: 是否标准化文本
-            denoise: 是否降噪
+            min_len: 最小生成长度
+            max_len: 最大生成长度
+            timesteps: Diffusion 推理步数
             payload: 认证载荷
 
         Returns:
@@ -223,18 +226,151 @@ def register_routes(app) -> None:
                 f.write(await prompt_wav.read())
 
         # 执行语音合成
-        result = await tts_module.synthesize(
+        result = await tts_onnx_module.synthesize(
             text=text,
             prompt_wav=str(prompt_wav_path) if prompt_wav_path else None,
             prompt_text=prompt_text,
+            feat_id=feat_id,
             cfg_value=cfg_value,
-            inference_timesteps=inference_timesteps,
-            do_normalize=do_normalize,
-            denoise=denoise,
+            min_len=min_len,
+            max_len=max_len,
+            timesteps=timesteps,
             output_path=job_dir / "tts_output.wav"
         )
 
         return result
+
+    @api_router.post("/tts/save_ref")
+    async def tts_save_ref(
+        feat_id: str = Form(...),
+        prompt_audio: UploadFile = File(...),
+        prompt_text: str = Form(None),
+        payload: Dict[str, Any] = Depends(verify_token)
+    ) -> Dict[str, Any]:
+        """
+        保存参考音频特征
+
+        Args:
+            feat_id: 特征 ID
+            prompt_audio: 参考音频文件
+            prompt_text: 参考文本
+            payload: 认证载荷
+
+        Returns:
+            Dict[str, Any]: 保存结果
+        """
+        from utils.file_utils import FileUtils
+        job_dir = FileUtils.create_job_dir()
+
+        # 保存上传的音频
+        prompt_audio_path = job_dir / prompt_audio.filename
+        with open(prompt_audio_path, "wb") as f:
+            f.write(await prompt_audio.read())
+
+        # 保存特征
+        result = await tts_onnx_module.save_ref_audio(
+            feat_id=feat_id,
+            prompt_audio_path=str(prompt_audio_path),
+            prompt_text=prompt_text
+        )
+
+        return result
+
+    @api_router.get("/tts/info")
+    async def tts_info(
+        payload: Dict[str, Any] = Depends(verify_token)
+    ) -> Dict[str, Any]:
+        """
+        获取 TTS 模型信息
+
+        Args:
+            payload: 认证载荷
+
+        Returns:
+            Dict[str, Any]: 模型信息
+        """
+        return tts_onnx_module.get_model_info()
+
+    @api_router.get("/tts/ref_features")
+    async def tts_list_ref_features(
+        payload: Dict[str, Any] = Depends(verify_token)
+    ) -> Dict[str, Any]:
+        """
+        获取所有已保存的参考音频特征
+
+        Args:
+            payload: 认证载荷
+
+        Returns:
+            Dict[str, Any]: 特征列表
+        """
+        return tts_onnx_module.list_ref_features()
+
+    @api_router.get("/file/download")
+    async def download_file(
+        file_path: str = Query(..., description="文件路径"),
+        payload: Dict[str, Any] = Depends(verify_token)
+    ) -> FileResponse:
+        """
+        下载文件（返回二进制流）
+
+        Args:
+            file_path: 文件路径
+            payload: 认证载荷
+
+        Returns:
+            FileResponse: 文件二进制流
+        """
+        from pathlib import Path
+        
+        # 解析文件路径
+        file_obj = Path(file_path).resolve()
+        
+        # 验证文件是否存在
+        if not file_obj.exists():
+            raise HTTPException(status_code=404, detail=f"文件不存在: {file_path}")
+        
+        # 验证是否为文件
+        if not file_obj.is_file():
+            raise HTTPException(status_code=400, detail=f"路径不是文件: {file_path}")
+        
+        # 安全检查：确保文件在允许的目录内
+        allowed_dirs = [
+            Path(config.OUTPUT_FOLDER).resolve(),
+            Path(config.UPLOAD_FOLDER).resolve(),
+            Path(config.DEBUG_FOLDER).resolve(),
+            Path(config.MODELS_DIR).resolve(),
+        ]
+        
+        is_allowed = any(
+            str(file_obj).startswith(str(allowed_dir))
+            for allowed_dir in allowed_dirs
+        )
+        
+        if not is_allowed:
+            raise HTTPException(
+                status_code=403,
+                detail=f"文件路径不在允许的目录内: {file_path}"
+            )
+        
+        # 根据文件扩展名确定 media type
+        media_type = "application/octet-stream"
+        if file_obj.suffix.lower() in ['.mp3', '.wav', '.m4a', '.aac', '.ogg', '.flac']:
+            media_type = "audio/mpeg"
+        elif file_obj.suffix.lower() in ['.mp4', '.avi', '.mov', '.mkv', '.wmv', '.flv', '.webm']:
+            media_type = "video/mp4"
+        elif file_obj.suffix.lower() in ['.png', '.jpg', '.jpeg', '.gif']:
+            media_type = "image/jpeg"
+        elif file_obj.suffix.lower() == '.srt':
+            media_type = "text/plain"
+        elif file_obj.suffix.lower() == '.json':
+            media_type = "application/json"
+        
+        return FileResponse(
+            path=str(file_obj),
+            media_type=media_type,
+            filename=file_obj.name
+        )
 
     # ==================== 字幕生成 ====================
     @api_router.post("/subtitle/generate")
