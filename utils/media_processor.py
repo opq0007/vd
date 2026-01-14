@@ -35,7 +35,9 @@ class MediaProcessor:
 
         # 首先检查输入文件是否包含音频流
         probe_cmd = [ffmpeg_path, "-i", str(input_path), "-hide_banner"]
-        result = subprocess.run(probe_cmd, capture_output=True, text=True)
+        # 在 Windows 系统上使用 GBK 编码，在其他系统上使用 UTF-8
+        encoding = 'gbk' if os.name == 'nt' else 'utf-8'
+        result = subprocess.run(probe_cmd, capture_output=True, text=True, encoding=encoding)
         
         # 检查是否有音频流
         has_audio = False
@@ -137,7 +139,8 @@ class MediaProcessor:
                 else:
                     cmd = f'{ffmpeg_path} -y -i "{video_rel}" -i "{srt_rel}" -c:v copy -c:a copy -c:s ass -metadata:s:s:0 language=chi -disposition:s:0 default -map 0:v -map 0:a? -map 1:s "{output_rel}"'
 
-                proc = subprocess.run(cmd, shell=True, capture_output=True, text=True)
+                encoding = 'gbk' if os.name == 'nt' else 'utf-8'
+                proc = subprocess.run(cmd, shell=True, capture_output=True, text=True, encoding=encoding)
                 if proc.returncode != 0:
                     raise RuntimeError(
                         f"Command failed: {cmd}\n"
@@ -196,7 +199,9 @@ class MediaProcessor:
             int: 视频宽度
         """
         probe_cmd = [ffmpeg_path, "-i", video_path, "-hide_banner"]
-        probe_result = subprocess.run(probe_cmd, capture_output=True, text=True)
+        # 在 Windows 系统上使用 GBK 编码，在其他系统上使用 UTF-8
+        encoding = 'gbk' if os.name == 'nt' else 'utf-8'
+        probe_result = subprocess.run(probe_cmd, capture_output=True, text=True, encoding=encoding)
         video_width = 720
 
         for line in probe_result.stderr.split('\n'):
@@ -275,7 +280,8 @@ class MediaProcessor:
                 ]
                 Logger.info(f"执行 FFmpeg 命令: {' '.join(cmd)}")
                 print(f"执行命令: {' '.join(cmd)}")
-                proc = subprocess.run(cmd, capture_output=True, text=True)
+                encoding = 'gbk' if os.name == 'nt' else 'utf-8'
+                proc = subprocess.run(cmd, capture_output=True, text=True, encoding=encoding)
                 Logger.info(f"FFmpeg stdout: {proc.stdout}")
                 if proc.stderr:
                     Logger.info(f"FFmpeg stderr: {proc.stderr}")
@@ -291,7 +297,7 @@ class MediaProcessor:
                         output_rel
                     ]
                     Logger.info(f"执行备用 FFmpeg 命令: {' '.join(cmd)}")
-                    proc = subprocess.run(cmd, capture_output=True, text=True)
+                    proc = subprocess.run(cmd, capture_output=True, text=True, encoding=encoding)
                     Logger.info(f"备用 FFmpeg stdout: {proc.stdout}")
                     if proc.stderr:
                         Logger.info(f"备用 FFmpeg stderr: {proc.stderr}")
@@ -329,8 +335,9 @@ class MediaProcessor:
         ]
 
         try:
-            # 使用 subprocess.capture_output 来获取输出
-            result = subprocess.run(cmd, capture_output=True, text=True)
+            # 在 Windows 系统上使用 GBK 编码，在其他系统上使用 UTF-8
+            encoding = 'gbk' if os.name == 'nt' else 'utf-8'
+            result = subprocess.run(cmd, capture_output=True, text=True, encoding=encoding)
             duration_match = re.search(r'Duration: (\d{2}):(\d{2}):(\d{2}\.\d{2})', result.stderr)
             if duration_match:
                 hours, minutes, seconds = map(float, duration_match.groups())
@@ -376,7 +383,9 @@ class MediaProcessor:
 
             # 检查原视频是否有音频流
             probe_cmd = [ffmpeg_path, "-i", str(video_path), "-hide_banner"]
-            probe_result = subprocess.run(probe_cmd, capture_output=True, text=True)
+            # 在 Windows 系统上使用 GBK 编码，在其他系统上使用 UTF-8
+            encoding = 'gbk' if os.name == 'nt' else 'utf-8'
+            probe_result = subprocess.run(probe_cmd, capture_output=True, text=True, encoding=encoding)
             has_audio = 'Audio:' in probe_result.stderr
 
             # 构建命令
@@ -406,7 +415,8 @@ class MediaProcessor:
                     cmd_str += f' "{output_rel}"'
                 
                 # 直接执行命令
-                proc = subprocess.run(cmd_str, shell=True, capture_output=True, text=True)
+                encoding = 'gbk' if os.name == 'nt' else 'utf-8'
+                proc = subprocess.run(cmd_str, shell=True, capture_output=True, text=True, encoding=encoding)
                 if proc.returncode != 0:
                     raise RuntimeError(
                         f"Command failed: {cmd_str}\n"
@@ -501,7 +511,8 @@ class MediaProcessor:
                 Logger.info(f"执行命令: {cmd_str}")
                 
                 # 执行命令
-                proc = subprocess.run(cmd_str, shell=True, capture_output=True, text=True)
+                encoding = 'gbk' if os.name == 'nt' else 'utf-8'
+                proc = subprocess.run(cmd_str, shell=True, capture_output=True, text=True, encoding=encoding)
                 if proc.returncode != 0:
                     raise RuntimeError(
                         f"Command failed: {cmd_str}\n"
@@ -564,7 +575,9 @@ class MediaProcessor:
 
             # 检查原视频是否有音频流
             probe_cmd = [ffmpeg_path, "-i", str(video_path), "-hide_banner"]
-            probe_result = subprocess.run(probe_cmd, capture_output=True, text=True)
+            # 在 Windows 系统上使用 GBK 编码，在其他系统上使用 UTF-8
+            encoding = 'gbk' if os.name == 'nt' else 'utf-8'
+            probe_result = subprocess.run(probe_cmd, capture_output=True, text=True, encoding=encoding)
             has_audio = 'Audio:' in probe_result.stderr
 
             if extend_video:

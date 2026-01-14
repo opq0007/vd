@@ -118,7 +118,7 @@ class WhisperService:
             loop = asyncio.get_event_loop()
             segments, info = await loop.run_in_executor(
                 None,
-                lambda: model.transcribe(audio_path, beam_size=beam_size)
+                lambda: model.transcribe(audio_path, beam_size=beam_size, language='zh')
             )
 
             result = {
@@ -134,7 +134,7 @@ class WhisperService:
                 ]
             }
 
-            Logger.info(f"Basic transcription completed: {len(result['segments'])} segments")
+            Logger.info(f"Basic transcription completed: {len(result['segments'])} segments, language: {info.language}")
             return result
 
         except Exception as e:
@@ -179,13 +179,14 @@ class WhisperService:
                     str(audio_path),
                     beam_size=beam_size,
                     task=task,
-                    word_timestamps=word_timestamps
+                    word_timestamps=word_timestamps,
+                    language='zh'  # 强制指定为简体中文
                 )
             )
 
             # 立即将segments转换为列表，避免生成器被消耗
             segments_list = list(segments)
-            Logger.info(f"Advanced transcription completed: {len(segments_list)} segments")
+            Logger.info(f"Advanced transcription completed: {len(segments_list)} segments, language: {info.language}")
             return segments_list
 
         except Exception as e:

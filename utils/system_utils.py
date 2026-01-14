@@ -32,15 +32,20 @@ class SystemUtils:
         Raises:
             RuntimeError: 命令执行失败时抛出
         """
-        if __import__('os').name == 'nt':  # Windows
+        import os
+        if os.name == 'nt':  # Windows
             cmd = [str(c) for c in cmd]
 
+        # 在 Windows 系统上使用 GBK 编码，在其他系统上使用 UTF-8
+        encoding = 'gbk' if os.name == 'nt' else 'utf-8'
+        
         proc = subprocess.run(
             cmd,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
-            shell=__import__('os').name == 'nt'
+            encoding=encoding,
+            shell=os.name == 'nt'
         )
         if proc.returncode != 0:
             raise RuntimeError(

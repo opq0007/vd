@@ -777,5 +777,152 @@ def register_routes(app) -> None:
         """
         return video_editor_module.get_available_effects()
 
+    # ==================== 文件上传 ====================
+    @api_router.post("/file/upload")
+    async def upload_file(
+        file: UploadFile = File(...),
+        payload: Dict[str, Any] = Depends(verify_token)
+    ) -> Dict[str, Any]:
+        """
+        文件上传接口
+
+        Args:
+            file: 上传的文件
+            payload: 认证载荷
+
+        Returns:
+            Dict[str, Any]: 包含文件路径的响应
+        """
+        from utils.file_utils import FileUtils
+
+        try:
+            # 确保上传目录存在
+            upload_dir = Path(config.UPLOAD_FOLDER)
+            upload_dir.mkdir(parents=True, exist_ok=True)
+
+            # 生成安全的文件名
+            filename = file.filename
+            if not filename:
+                raise HTTPException(status_code=400, detail="文件名不能为空")
+
+            # 避免文件名冲突
+            file_path = upload_dir / filename
+            counter = 1
+            while file_path.exists():
+                name, ext = Path(filename).stem, Path(filename).suffix
+                file_path = upload_dir / f"{name}_{counter}{ext}"
+                counter += 1
+
+            # 保存文件
+            with open(file_path, "wb") as f:
+                f.write(await file.read())
+
+            Logger.info(f"文件上传成功: {file_path}")
+
+            return {
+                "success": True,
+                "filename": file_path.name,
+                "filepath": str(file_path.absolute()),
+                "size": file_path.stat().st_size,
+                "message": "文件上传成功"
+            }
+
+        except Exception as e:
+            Logger.error(f"文件上传失败: {e}")
+            raise HTTPException(status_code=500, detail=f"文件上传失败: {str(e)}")
+
+    # ==================== 一站式音视频合成+字幕生成+LLM纠错 ====================
+    @api_router.post("/video/complete_process")
+    async def complete_video_process(
+        video_path: str = Form(...),
+        audio_path: str = Form(...),
+        model_name: str = Form("small"),
+        device: str = Form("cpu"),
+        beam_size: int = Form(5),
+        audio_volume: float = Form(1.0),
+        keep_original_audio: bool = Form(True),
+        enable_llm_correction: bool = Form(False),
+        reference_text: str = Form(None),
+        burn_subtitles: str = Form("hard"),
+        out_basename: str = Form(None),
+        payload: Dict[str, Any] = Depends(verify_token)
+    ) -> Dict[str, Any]:
+        """
+        一站式音视频合成+字幕生成+LLM纠错
+
+        自动进行以下操作：
+        1. 以视频时长为准，自动调整音频速率来适配视频时长
+        2. 将音频与视频合成
+        3. 生成字幕
+        4. 如果启用LLM纠错，使用智谱AI进行字幕纠错
+        5. 如果需要，烧录字幕到视频
+
+        Args:
+            video_path: 视频文件路径
+            audio_path: 音频文件路径
+            model_name: Whisper模型名称
+            device: 设备类型
+            beam_size: beam search 大小
+            audio_volume: 音频音量倍数（默认1.0）
+            keep_original_audio: 是否保留原视频音频（默认True）
+            enable_llm_correction: 是否启用LLM字幕纠错
+            reference_text: 参考文本，用于字幕纠错
+            burn_subtitles: 字幕烧录类型 (none/hard)
+            out_basename: 输出文件名前缀
+            payload: 认证载荷
+
+        Returns:
+            Dict[str, Any]: 处理结果
+        """
+        try:
+            # 验证文件路径
+            video_file = Path(video_path)
+            audio_file = Path(audio_path)
+
+            if not video_file.exists():
+                raise HTTPException(status_code=404, detail=f"视频文件不存在: {video_path}")
+
+            if not audio_file.exists():
+                raise HTTPException(status_code=404, detail=f"音频文件不存在: {audio_path}")
+
+            Logger.info(f"开始一站式处理: 视频={video_path}, 音频={audio_path}")
+
+            # 调用字幕生成模块
+            result = await subtitle_module.generate_subtitles_advanced(
+                input_type="path",
+                video_path=video_path,
+                audio_path=audio_path,
+                model_name=model_name,
+                device=device,
+                generate_subtitle=True,
+                bilingual=False,
+                word_timestamps=False,
+                burn_subtitles=burn_subtitles,
+                beam_size=beam_size,
+                out_basename=out_basename,
+                flower_config=None,
+                image_config=None,
+                watermark_config=None,
+                duration_reference="video",  # 以视频时长为准
+                adjust_audio_speed=True,  # 自动调整音频语速
+                audio_speed_factor=1.0,  # 自动计算语速倍数
+                audio_volume=audio_volume,
+                keep_original_audio=keep_original_audio,
+                enable_llm_correction=enable_llm_correction,
+                reference_text=reference_text
+            )
+
+            Logger.info(f"一站式处理完成: {result.get('out_basename', 'unknown')}")
+
+            return result
+
+        except HTTPException:
+            raise
+        except Exception as e:
+            Logger.error(f"一站式处理失败: {e}")
+            import traceback
+            Logger.error(traceback.format_exc())
+            raise HTTPException(status_code=500, detail=f"处理失败: {str(e)}")
+
     # 注册路由器到应用
     app.include_router(api_router)
