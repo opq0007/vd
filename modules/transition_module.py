@@ -37,6 +37,8 @@ class TransitionModule:
         fps: int = 30,
         width: int = 640,
         height: int = 640,
+        # 任务目录配置（可选）
+        job_dir: Optional[Path] = None,  # 可选的任务目录，如果提供则使用该目录
         **kwargs
     ) -> Dict[str, Any]:
         """
@@ -56,8 +58,13 @@ class TransitionModule:
             Dict[str, Any]: 转场结果
         """
         try:
-            # 处理路径输入
-            job_dir = FileUtils.create_job_dir()
+            # 创建任务目录（如果未提供）
+            if job_dir is None:
+                job_dir = FileUtils.create_job_dir()
+            else:
+                # 确保 job_dir 存在
+                job_dir = Path(job_dir)
+                job_dir.mkdir(parents=True, exist_ok=True)
 
             if FileUtils.is_url(video1_path):
                 video1_local = FileUtils.process_path_input(video1_path, job_dir)
@@ -155,7 +162,9 @@ class TransitionModule:
         total_frames: int = 30,
         fps: int = 30,
         width: int = 640,
-        height: int = 640
+        height: int = 640,
+        # 任务目录配置（可选）
+        job_dir: Optional[Path] = None  # 可选的任务目录，如果提供则使用该目录
     ) -> Dict[str, Any]:
         """
         批量应用转场效果
@@ -185,7 +194,13 @@ class TransitionModule:
                 }
 
             output_paths = []
-            job_dir = FileUtils.create_job_dir()
+            # 创建任务目录（如果未提供）
+            if job_dir is None:
+                job_dir = FileUtils.create_job_dir()
+            else:
+                # 确保 job_dir 存在
+                job_dir = Path(job_dir)
+                job_dir.mkdir(parents=True, exist_ok=True)
 
             # 依次应用转场效果
             current_video = video_paths[0]
@@ -198,7 +213,8 @@ class TransitionModule:
                     total_frames,
                     fps,
                     width,
-                    height
+                    height,
+                    job_dir=job_dir  # 传递同一个 job_dir
                 )
 
                 if result["success"]:

@@ -13,7 +13,7 @@ class Config:
     """应用配置类 - 统一管理所有配置参数"""
 
     # ==================== 服务配置 ====================
-    API_TOKEN = os.environ.get("API_TOKEN", "whisper-api-key-2024")
+    API_TOKEN = os.environ.get("API_TOKEN", "opq#key")
     SECRET_KEY = os.environ.get("SECRET_KEY", "your-secret-key-change-in-production")
     HOST = os.environ.get("HOST", "0.0.0.0")
     PORT = int(os.environ.get("PORT", 7860))
