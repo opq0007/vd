@@ -34,7 +34,9 @@ class VideoEditorModule:
         image_config: Optional[Dict[str, Any]] = None,
         # 水印配置
         watermark_config: Optional[Dict[str, Any]] = None,
-        out_basename: Optional[str] = None
+        out_basename: Optional[str] = None,
+        # 任务目录配置（可选）
+        job_dir: Optional[Path] = None  # 可选的任务目录，如果提供则使用该目录
     ) -> Dict[str, Any]:
         """
         应用视频效果
@@ -54,8 +56,14 @@ class VideoEditorModule:
             Dict[str, Any]: 视频编辑结果
         """
         try:
-            # 创建任务目录
-            job_dir = FileUtils.create_job_dir()
+            # 创建任务目录（如果未提供）
+            if job_dir is None:
+                job_dir = FileUtils.create_job_dir()
+            else:
+                # 确保 job_dir 存在
+                job_dir = Path(job_dir)
+                job_dir.mkdir(parents=True, exist_ok=True)
+
             out_basename = out_basename or f"output_{FileUtils.generate_job_id()}"
 
             # 处理输入文件

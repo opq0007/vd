@@ -99,8 +99,20 @@ class FileUtils:
 
             # 复制到任务目录
             dest_path = job_dir / local_path.name
-            shutil.copy2(str(local_path), str(dest_path))
-            Logger.info(f"复制本地文件: {local_path} -> {dest_path}")
+
+            # 检查源文件和目标文件是否相同
+            try:
+                if local_path.resolve() == dest_path.resolve():
+                    # 文件已经在目标目录中，直接返回
+                    Logger.info(f"文件已在目标目录中: {local_path}")
+                    return local_path
+                shutil.copy2(str(local_path), str(dest_path))
+                Logger.info(f"复制本地文件: {local_path} -> {dest_path}")
+            except shutil.SameFileError:
+                # 如果捕获到 SameFileError，直接返回源文件路径
+                Logger.info(f"文件已在目标目录中: {local_path}")
+                return local_path
+
             return dest_path
 
     @staticmethod

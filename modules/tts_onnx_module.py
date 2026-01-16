@@ -374,7 +374,7 @@ class TTSOnnxModule:
             return {
                 "success": True,
                 "feat_id": feat_id,
-                "patches_shape": patches.shape.tolist()
+                "patches_shape": patches.shape
             }
 
         except Exception as e:

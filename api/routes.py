@@ -588,7 +588,8 @@ def register_routes(app) -> None:
             audio_volume=audio_volume,
             keep_original_audio=keep_original_audio,
             enable_llm_correction=enable_llm_correction,
-            reference_text=reference_text
+            reference_text=reference_text,
+            job_dir=job_dir  # 传递 job_dir，确保在同一个目录下处理
         )
 
         return result
@@ -635,7 +636,8 @@ def register_routes(app) -> None:
             watermark_text=watermark_text,
             watermark_image=str(watermark_image_path) if watermark_image_path else None,
             position=position,
-            opacity=opacity
+            opacity=opacity,
+            job_dir=job_dir  # 传递 job_dir，确保在同一个目录下处理
         )
 
         return result
@@ -687,7 +689,8 @@ def register_routes(app) -> None:
             total_frames=total_frames,
             fps=fps,
             width=width,
-            height=height
+            height=height,
+            job_dir=job_dir  # 传递 job_dir，确保在同一个目录下处理
         )
 
         return result
@@ -894,7 +897,8 @@ def register_routes(app) -> None:
             flower_config=flower_config,
             image_config=image_config,
             watermark_config=watermark_config,
-            out_basename=out_basename
+            out_basename=out_basename,
+            job_dir=job_dir  # 传递 job_dir，确保在同一个目录下处理
         )
 
         return result
@@ -1151,7 +1155,7 @@ def register_routes(app) -> None:
             audio_file = tts_result["output_path"]
             Logger.info(f"TTS合成成功: {audio_file}, 时长: {tts_result.get('duration', 0):.2f}s")
 
-            # 2. 字幕生成
+            # 2. 字幕生成（使用同一个 job_dir）
             Logger.info("步骤2: 开始生成字幕...")
             subtitle_result = await subtitle_module.generate_subtitles_advanced(
                 input_type="path",
@@ -1174,7 +1178,8 @@ def register_routes(app) -> None:
                 audio_volume=audio_volume,
                 keep_original_audio=keep_original_audio,
                 enable_llm_correction=enable_llm_correction,
-                reference_text=text_content  # 使用输入的文本内容作为参考文本
+                reference_text=text_content,  # 使用输入的文本内容作为参考文本
+                job_dir=job_dir  # 传递 job_dir，确保在同一个目录下处理
             )
             
             if not subtitle_result.get("success", False):
@@ -1241,6 +1246,41 @@ def register_routes(app) -> None:
             import traceback
             Logger.error(traceback.format_exc())
             raise HTTPException(status_code=500, detail=f"处理失败: {str(e)}")
+
+    # ==================== 视频合并 ====================
+    @api_router.post("/video_merge/merge")
+    async def merge_videos(
+        video_paths: str = Form(...),
+        out_basename: str = Form(None),
+        payload: Dict[str, Any] = Depends(verify_token)
+    ) -> Dict[str, Any]:
+        """
+        合并多个视频文件
+
+        Args:
+            video_paths: 视频文件路径列表，用换行符分隔
+            out_basename: 输出文件名前缀
+            payload: 认证载荷
+
+        Returns:
+            Dict[str, Any]: 合并结果
+        """
+        from modules.video_merge_module import video_merge_module
+
+        try:
+            # 执行视频合并
+            result = await video_merge_module.merge_videos(
+                video_paths=video_paths,
+                out_basename=out_basename
+            )
+
+            return result
+
+        except Exception as e:
+            Logger.error(f"视频合并失败: {e}")
+            import traceback
+            Logger.error(traceback.format_exc())
+            raise HTTPException(status_code=500, detail=f"视频合并失败: {str(e)}")
 
     # 注册路由器到应用
     app.include_router(api_router)

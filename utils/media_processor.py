@@ -261,7 +261,16 @@ class MediaProcessor:
                 output_dir = output_path.parent
                 os.chdir(output_dir)
 
-                video_rel = video_path.name
+                # 检查视频文件是否在输出目录中
+                video_in_output_dir = video_path.parent == output_dir
+
+                if video_in_output_dir:
+                    # 视频文件在输出目录中，使用相对路径
+                    video_rel = video_path.name
+                else:
+                    # 视频文件不在输出目录中，使用绝对路径
+                    video_rel = str(video_path.resolve())
+
                 output_rel = output_path.name
                 temp_ass_rel = temp_ass_path.name
 
@@ -285,7 +294,7 @@ class MediaProcessor:
                 Logger.info(f"FFmpeg stdout: {proc.stdout}")
                 if proc.stderr:
                     Logger.info(f"FFmpeg stderr: {proc.stderr}")
-                    
+
                 # 如果使用 subtitles 滤镜失败，尝试使用 ass 滤镜
                 if proc.returncode != 0:
                     Logger.warning("subtitles 滤镜失败，尝试使用 ass 滤镜")

@@ -56,7 +56,9 @@ class SubtitleModule:
         keep_original_audio: bool = True,  # 是否保留原视频音频（默认True，保留并混合；False则替换原音频）
         # LLM 字幕纠错配置
         enable_llm_correction: bool = False,  # 是否启用 LLM 字幕纠错
-        reference_text: Optional[str] = None  # 参考文本，用于字幕纠错
+        reference_text: Optional[str] = None,  # 参考文本，用于字幕纠错
+        # 任务目录配置（可选）
+        job_dir: Optional[Path] = None  # 可选的任务目录，如果提供则使用该目录
     ) -> Dict[str, Any]:
         """
         高级字幕生成功能（完整版）
@@ -92,8 +94,14 @@ class SubtitleModule:
         try:
             from modules.whisper_service import whisper_service
 
-            # 创建任务目录
-            job_dir = FileUtils.create_job_dir()
+            # 创建任务目录（如果未提供）
+            if job_dir is None:
+                job_dir = FileUtils.create_job_dir()
+            else:
+                # 确保 job_dir 存在
+                job_dir = Path(job_dir)
+                job_dir.mkdir(parents=True, exist_ok=True)
+            
             out_basename = out_basename or f"output_{FileUtils.generate_job_id()}"
 
             # 处理输入文件
@@ -474,7 +482,9 @@ class SubtitleModule:
         video_path: Path,
         subtitle_path: Path,
         output_path: Optional[Path] = None,
-        subtitle_type: str = "hard"
+        subtitle_type: str = "hard",
+        # 任务目录配置（可选）
+        job_dir: Optional[Path] = None  # 可选的任务目录，如果提供则使用该目录
     ) -> Dict[str, Any]:
         """
         烧录字幕到视频
@@ -489,8 +499,16 @@ class SubtitleModule:
             Dict[str, Any]: 烧录结果
         """
         try:
+            # 创建任务目录（如果未提供）
+            if job_dir is None:
+                job_dir = FileUtils.create_job_dir()
+            else:
+                # 确保 job_dir 存在
+                job_dir = Path(job_dir)
+                job_dir.mkdir(parents=True, exist_ok=True)
+
             if output_path is None:
-                output_path = FileUtils.create_job_dir() / f"video_with_subs_{FileUtils.generate_job_id()}.mp4"
+                output_path = job_dir / f"video_with_subs_{FileUtils.generate_job_id()}.mp4"
 
             if subtitle_type == "hard":
                 MediaProcessor.burn_hardsub(video_path, subtitle_path, output_path)
@@ -519,7 +537,9 @@ class SubtitleModule:
         watermark_image: Optional[str] = None,
         position: str = "bottom_right",
         opacity: float = 0.5,
-        output_path: Optional[Path] = None
+        output_path: Optional[Path] = None,
+        # 任务目录配置（可选）
+        job_dir: Optional[Path] = None  # 可选的任务目录，如果提供则使用该目录
     ) -> Dict[str, Any]:
         """
         为视频添加水印
@@ -536,8 +556,16 @@ class SubtitleModule:
             Dict[str, Any]: 添加水印结果
         """
         try:
+            # 创建任务目录（如果未提供）
+            if job_dir is None:
+                job_dir = FileUtils.create_job_dir()
+            else:
+                # 确保 job_dir 存在
+                job_dir = Path(job_dir)
+                job_dir.mkdir(parents=True, exist_ok=True)
+
             if output_path is None:
-                output_path = FileUtils.create_job_dir() / f"video_with_watermark_{FileUtils.generate_job_id()}.mp4"
+                output_path = job_dir / f"video_with_watermark_{FileUtils.generate_job_id()}.mp4"
 
             # 构建水印配置
             watermark_config = None
@@ -553,8 +581,8 @@ class SubtitleModule:
                     'style': '半透明浮动'
                 }
 
-            # 应用水印效果
-            temp_video = FileUtils.create_job_dir() / f"temp_watermark_{FileUtils.generate_job_id()}.mp4"
+            # 应用水印效果（使用同一个 job_dir）
+            temp_video = job_dir / f"temp_watermark_{FileUtils.generate_job_id()}.mp4"
 
             VideoEffectsProcessor.apply_video_effects(
                 video_path, temp_video,

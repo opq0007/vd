@@ -19,15 +19,18 @@ class SystemUtils:
     _ffmpeg_path = None
 
     @classmethod
-    def run_cmd(cls, cmd: List[str]) -> str:
+    def run_cmd(cls, cmd: List[str], capture_output: bool = False, text: bool = True, encoding: str = None) -> str or dict:
         """
         执行命令并返回输出
 
         Args:
             cmd: 命令列表
+            capture_output: 是否捕获输出（返回字典格式）
+            text: 是否以文本模式返回
+            encoding: 指定编码（默认根据系统自动选择）
 
         Returns:
-            命令输出
+            str or dict: 命令输出（字符串或字典格式）
 
         Raises:
             RuntimeError: 命令执行失败时抛出
@@ -37,13 +40,14 @@ class SystemUtils:
             cmd = [str(c) for c in cmd]
 
         # 在 Windows 系统上使用 GBK 编码，在其他系统上使用 UTF-8
-        encoding = 'gbk' if os.name == 'nt' else 'utf-8'
+        if encoding is None:
+            encoding = 'gbk' if os.name == 'nt' else 'utf-8'
         
         proc = subprocess.run(
             cmd,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
-            text=True,
+            text=text,
             encoding=encoding,
             shell=os.name == 'nt'
         )
@@ -53,7 +57,15 @@ class SystemUtils:
                 f"stdout:\n{proc.stdout}\n"
                 f"stderr:\n{proc.stderr}"
             )
-        return proc.stdout
+        
+        if capture_output:
+            return {
+                'stdout': proc.stdout,
+                'stderr': proc.stderr,
+                'returncode': proc.returncode
+            }
+        else:
+            return proc.stdout
 
     @classmethod
     def check_ffmpeg_available(cls) -> bool:
