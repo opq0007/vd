@@ -125,6 +125,50 @@ def create_video_editor_interface() -> gr.Blocks:
                                 label="结束时间", value="00:00:05", placeholder="格式: HH:MM:SS"
                             )
 
+                # 插视频配置
+                with gr.Accordion("🎬 插视频配置", open=False):
+                    gr.Markdown("#### 🎬 插视频配置")
+                    gr.Markdown("将另一个视频的每一帧依次插入到原视频的指定位置")
+                    with gr.Row():
+                        video_insert_path = gr.Textbox(
+                            label="视频路径",
+                            placeholder="输入视频文件路径",
+                            info="支持本地路径"
+                        )
+                    with gr.Row():
+                        video_insert_x = gr.Slider(
+                            minimum=0, maximum=1920, value=200, step=10,
+                            label="X坐标"
+                        )
+                        video_insert_y = gr.Slider(
+                            minimum=0, maximum=1080, value=200, step=10,
+                            label="Y坐标"
+                        )
+                    with gr.Row():
+                        video_insert_width = gr.Slider(
+                            minimum=50, maximum=800, value=200, step=10,
+                            label="宽度"
+                        )
+                        video_insert_height = gr.Slider(
+                            minimum=50, maximum=600, value=150, step=10,
+                            label="高度"
+                        )
+                    with gr.Row():
+                        video_insert_timing_type = gr.Radio(
+                            choices=["起始帧", "起始时间"],
+                            value="起始时间",
+                            label="插入起始时机"
+                        )
+                    with gr.Group():
+                        with gr.Row(visible=True) as video_insert_time_group:
+                            video_insert_start_time = gr.Textbox(
+                                label="起始时间", value="00:00:00", placeholder="格式: HH:MM:SS"
+                            )
+                        with gr.Row(visible=False) as video_insert_frame_group:
+                            video_insert_start_frame = gr.Number(
+                                label="起始帧", value=0, minimum=0, precision=0
+                            )
+
                 # 插图配置
                 with gr.Accordion("🖼️ 插图配置", open=False):
                     gr.Markdown("#### 🖼️ 插图配置")
@@ -287,6 +331,20 @@ def create_video_editor_interface() -> gr.Blocks:
                     outputs=[watermark_frame_group, watermark_time_group]
                 )
 
+                def update_video_insert_timing_visibility(timing_type):
+                    frame_visible = timing_type == "起始帧"
+                    time_visible = timing_type == "起始时间"
+                    return (
+                        gr.Row(visible=time_visible),
+                        gr.Row(visible=frame_visible)
+                    )
+
+                video_insert_timing_type.change(
+                    update_video_insert_timing_visibility,
+                    inputs=[video_insert_timing_type],
+                    outputs=[video_insert_time_group, video_insert_frame_group]
+                )
+
             with gr.Column():
                 # 输出结果区域
                 gr.Markdown("### 📝 处理结果")
@@ -320,6 +378,15 @@ def create_video_editor_interface() -> gr.Blocks:
                 flower_stroke_enabled,
                 flower_stroke_color,
                 flower_stroke_width,
+                # 插视频配置
+                video_insert_path,
+                video_insert_x,
+                video_insert_y,
+                video_insert_width,
+                video_insert_height,
+                video_insert_timing_type,
+                video_insert_start_frame,
+                video_insert_start_time,
                 # 插图配置
                 image_path,
                 image_x,
@@ -373,6 +440,9 @@ async def process_video_effects(*args):
          flower_timing_type, flower_start_frame, flower_end_frame,
          flower_start_time, flower_end_time,
          flower_stroke_enabled, flower_stroke_color, flower_stroke_width,
+         # 插视频配置
+         video_insert_path, video_insert_x, video_insert_y, video_insert_width, video_insert_height,
+         video_insert_timing_type, video_insert_start_frame, video_insert_start_time,
          # 插图配置
          image_path, image_x, image_y, image_width, image_height,
          image_timing_type, image_start_frame, image_end_frame,
@@ -419,6 +489,20 @@ async def process_video_effects(*args):
                 'end_time': image_end_time
             }
 
+        # 准备插视频配置
+        video_config = None
+        if video_insert_path and video_insert_path.strip():
+            video_config = {
+                'path': video_insert_path,
+                'x': int(video_insert_x),
+                'y': int(video_insert_y),
+                'width': int(video_insert_width),
+                'height': int(video_insert_height),
+                'timing_type': video_insert_timing_type,
+                'start_frame': int(video_insert_start_frame),
+                'start_time': video_insert_start_time
+            }
+
         # 准备水印配置
         watermark_config = None
         if watermark_text and watermark_text.strip():
@@ -442,6 +526,7 @@ async def process_video_effects(*args):
             video_path=video_path,
             flower_config=flower_config,
             image_config=image_config,
+            video_config=video_config,
             watermark_config=watermark_config
         )
 

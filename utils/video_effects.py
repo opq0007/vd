@@ -354,6 +354,23 @@ class VideoEffectsProcessor:
             return float(time_str)
 
     @staticmethod
+    def check_position_overlap(x1: int, y1: int, w1: int, h1: int,
+                              x2: int, y2: int, w2: int, h2: int) -> bool:
+        """
+        检测两个矩形区域是否重叠
+
+        Args:
+            x1, y1, w1, h1: 第一个矩形的位置和尺寸
+            x2, y2, w2, h2: 第二个矩形的位置和尺寸
+
+        Returns:
+            bool: 是否重叠
+        """
+        # 检查两个矩形是否不重叠
+        no_overlap = (x1 + w1 <= x2) or (x2 + w2 <= x1) or (y1 + h1 <= y2) or (y2 + h2 <= y1)
+        return not no_overlap
+
+    @staticmethod
     def parse_timing_config(timing_type: str, start_frame: int, end_frame: int,
                            start_time: str, end_time: str, fps: float = 30.0) -> tuple:
         """
@@ -794,6 +811,7 @@ class VideoEffectsProcessor:
     def apply_video_effects(input_path: Path, output_path: Path,
                            flower_config: dict = None,
                            image_config: dict = None,
+                           video_config: dict = None,
                            watermark_config: dict = None) -> bool:
         """
         使用OpenCV应用视频效果
@@ -802,6 +820,7 @@ class VideoEffectsProcessor:
             output_path: 输出视频路径
             flower_config: 花字配置
             image_config: 插图配置
+            video_config: 插视频配置
             watermark_config: 水印配置
 
         Returns:
@@ -809,7 +828,7 @@ class VideoEffectsProcessor:
         """
         try:
             # 检查是否有效果需要应用
-            has_effects = flower_config or image_config or watermark_config
+            has_effects = flower_config or image_config or video_config or watermark_config
             if not has_effects:
                 import shutil
                 shutil.copy2(input_path, output_path)
@@ -928,6 +947,22 @@ class VideoEffectsProcessor:
                     job_dir
                 )
 
+            # 插视频预处理
+            video_cap = None
+            if video_config and video_config.get('path'):
+                video_path = Path(video_config['path'])
+                if video_path.exists():
+                    video_cap = cv2.VideoCapture(str(video_path))
+                    if video_cap.isOpened():
+                        video_fps = video_cap.get(cv2.CAP_PROP_FPS)
+                        video_total_frames = int(video_cap.get(cv2.CAP_PROP_FRAME_COUNT))
+                        Logger.info(f"插视频已加载: {video_path}, {video_fps}fps, {video_total_frames}帧")
+                    else:
+                        Logger.warning(f"无法打开插视频文件: {video_path}")
+                        video_cap = None
+                else:
+                    Logger.warning(f"插视频文件不存在: {video_path}")
+
             watermark_img = None
             if watermark_config and watermark_config.get('text'):
                 # 获取文字颜色，支持多种格式
@@ -977,6 +1012,16 @@ class VideoEffectsProcessor:
                     fps
                 )
 
+            # 插视频时机配置
+            video_start = 0
+            if video_config:
+                timing_type = video_config.get('timing_type', '起始时间')
+                if timing_type == "起始帧":
+                    video_start = video_config['start_frame'] / fps
+                else:  # 起始时间
+                    video_start = VideoEffectsProcessor.time_to_seconds(video_config['start_time'])
+                Logger.info(f"插视频起始时机: {video_start}s (类型: {timing_type})")
+
             # 处理每一帧
             frame_index = 0
             while True:
@@ -985,6 +1030,9 @@ class VideoEffectsProcessor:
                     break
 
                 current_time = frame_index / fps
+
+                # 效果应用顺序：花字 -> 插视频 -> 插图 -> 水印
+                # 后应用的效果会覆盖先应用的效果（如果位置重叠）
 
                 # 应用花字效果
                 if flower_img is not None and flower_start <= current_time <= flower_end:
@@ -1012,7 +1060,47 @@ class VideoEffectsProcessor:
                     except Exception as e:
                         Logger.error(f"应用花字失败: {e}")
 
-                # 应用插图效果
+                # 应用插视频效果
+                if video_cap is not None and current_time >= video_start:
+                    try:
+                        # 计算要插入的视频帧索引（从起始时机开始计算）
+                        video_frame_index = int((current_time - video_start) * fps)
+                        video_cap.set(cv2.CAP_PROP_POS_FRAMES, video_frame_index)
+                        ret_video, video_frame = video_cap.read()
+
+                        if ret_video:
+                            # 调整视频帧大小
+                            target_width = video_config.get('width', 200)
+                            target_height = video_config.get('height', 150)
+                            video_frame_resized = cv2.resize(video_frame, (target_width, target_height))
+
+                            vh, vw = video_frame_resized.shape[:2]
+                            vx, vy = video_config['x'], video_config['y']
+
+                            Logger.debug(f"应用插视频: frame={frame_index}, time={current_time:.2f}s, pos=({vx},{vy}), size=({vw},{vh})")
+
+                            if vx + vw <= width and vy + vh <= height:
+                                # 检测与花字的位置重叠
+                                if flower_img is not None and flower_start <= current_time <= flower_end:
+                                    fh, fw = flower_img.shape[:2]
+                                    fx, fy = flower_config['x'], flower_config['y']
+                                    if VideoEffectsProcessor.check_position_overlap(vx, vy, vw, vh, fx, fy, fw, fh):
+                                        Logger.debug(f"插视频与花字位置重叠，花字会被覆盖")
+
+                                # 直接叠加视频帧
+                                frame[vy:vy+vh, vx:vx+vw] = video_frame_resized
+                                Logger.debug(f"插视频已应用")
+                            else:
+                                Logger.warning(f"插视频位置超出视频范围: ({vx},{vy})+({vw},{vh}) > ({width},{height})")
+                        else:
+                            Logger.debug(f"插视频已播放结束: frame_index={video_frame_index}")
+                    except Exception as e:
+                        Logger.error(f"应用插视频失败: {e}")
+                        import traceback
+                        Logger.error(traceback.format_exc())
+                        pass
+
+                # 应用插图效果（后应用，会覆盖插视频）
                 if overlay_img is not None and overlay_start <= current_time <= overlay_end:
                     try:
                         oh, ow = overlay_img.shape[:2]
@@ -1020,6 +1108,21 @@ class VideoEffectsProcessor:
                         Logger.debug(f"应用插图: frame={frame_index}, time={current_time:.2f}s, pos=({ox},{oy}), size=({ow},{oh}), channels={overlay_img.shape[2]}")
 
                         if ox + ow <= width and oy + oh <= height:
+                            # 检测与插视频的位置重叠
+                            if video_cap is not None and current_time >= video_start:
+                                video_target_width = video_config.get('width', 200)
+                                video_target_height = video_config.get('height', 150)
+                                vx, vy = video_config['x'], video_config['y']
+                                if VideoEffectsProcessor.check_position_overlap(ox, oy, ow, oh, vx, vy, video_target_width, video_target_height):
+                                    Logger.debug(f"插图与插视频位置重叠，插视频会被覆盖")
+
+                            # 检测与花字的位置重叠
+                            if flower_img is not None and flower_start <= current_time <= flower_end:
+                                fh, fw = flower_img.shape[:2]
+                                fx, fy = flower_config['x'], flower_config['y']
+                                if VideoEffectsProcessor.check_position_overlap(ox, oy, ow, oh, fx, fy, fw, fh):
+                                    Logger.debug(f"插图与花字位置重叠，花字会被覆盖")
+
                             # 确保颜色空间一致
                             if overlay_img.shape[2] == 3:
                                 # BGR图像，直接叠加
@@ -1046,7 +1149,7 @@ class VideoEffectsProcessor:
                         Logger.error(traceback.format_exc())
                         pass
 
-                # 应用水印效果
+                # 应用水印效果（后应用，会覆盖所有其他效果）
                 if watermark_img is not None and watermark_start <= current_time <= watermark_end:
                     frame = VideoEffectsProcessor.apply_watermark_effect(
                         frame, watermark_img,
@@ -1060,6 +1163,8 @@ class VideoEffectsProcessor:
 
             # 释放资源
             cap.release()
+            if video_cap is not None:
+                video_cap.release()
             out.release()
 
             Logger.info(f"Video effects applied successfully: {output_path}")
