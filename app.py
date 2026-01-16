@@ -44,7 +44,8 @@ from ui import (
     create_tts_interface,
     create_subtitle_interface,
     create_transition_interface,
-    create_video_editor_interface
+    create_video_editor_interface,
+    create_video_merge_interface
 )
 
 # 初始化日志
@@ -115,6 +116,10 @@ def create_gradio_interface():
             with gr.TabItem("视频转场特效"):
                 create_transition_interface()
 
+            # 视频合并标签页
+            with gr.TabItem("🔗 视频合并"):
+                create_video_merge_interface()
+
             # API文档标签页
             with gr.TabItem("API文档"):
                 gr.Markdown("## API 文档")
@@ -155,6 +160,9 @@ def create_gradio_interface():
 - `POST /api/transition/apply` - 应用转场效果
 - `GET /api/transition/list` - 获取转场效果列表
 - `GET /api/transition/params/{transition_name}` - 获取转场参数
+
+#### 视频合并
+- `POST /api/video_merge/merge` - 合并多个视频文件
                 """)
 
     return demo
@@ -221,6 +229,7 @@ async def root():
                     <li>🎤 语音合成 - 基于 VoxCPM 的高质量语音合成</li>
                     <li>📝 字幕生成 - 自动生成视频字幕，支持翻译和烧录</li>
                     <li>🎬 视频转场 - 多种专业视频转场效果</li>
+                    <li>🔗 视频合并 - 合并多个视频文件为一个视频</li>
                     <li>🔊 语音识别 - 基于 faster-whisper 的高性能语音识别</li>
                 </ul>
                 <h2>技术架构</h2>

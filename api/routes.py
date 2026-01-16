@@ -1247,5 +1247,40 @@ def register_routes(app) -> None:
             Logger.error(traceback.format_exc())
             raise HTTPException(status_code=500, detail=f"处理失败: {str(e)}")
 
+    # ==================== 视频合并 ====================
+    @api_router.post("/video_merge/merge")
+    async def merge_videos(
+        video_paths: str = Form(...),
+        out_basename: str = Form(None),
+        payload: Dict[str, Any] = Depends(verify_token)
+    ) -> Dict[str, Any]:
+        """
+        合并多个视频文件
+
+        Args:
+            video_paths: 视频文件路径列表，用换行符分隔
+            out_basename: 输出文件名前缀
+            payload: 认证载荷
+
+        Returns:
+            Dict[str, Any]: 合并结果
+        """
+        from modules.video_merge_module import video_merge_module
+
+        try:
+            # 执行视频合并
+            result = await video_merge_module.merge_videos(
+                video_paths=video_paths,
+                out_basename=out_basename
+            )
+
+            return result
+
+        except Exception as e:
+            Logger.error(f"视频合并失败: {e}")
+            import traceback
+            Logger.error(traceback.format_exc())
+            raise HTTPException(status_code=500, detail=f"视频合并失败: {str(e)}")
+
     # 注册路由器到应用
     app.include_router(api_router)

@@ -9,6 +9,7 @@ from .tts_ui import create_tts_interface
 from .subtitle_ui import create_subtitle_interface
 from .transition_ui import create_transition_interface
 from .video_editor_ui import create_video_editor_interface
+from .video_merge_ui import create_video_merge_interface
 
 __all__ = [
     'get_custom_css',
@@ -16,5 +17,6 @@ __all__ = [
     'create_tts_interface',
     'create_subtitle_interface',
     'create_transition_interface',
-    'create_video_editor_interface'
+    'create_video_editor_interface',
+    'create_video_merge_interface'
 ]
