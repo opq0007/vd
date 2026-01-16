@@ -52,7 +52,21 @@ class VideoMergeModule:
 
             # 解析视频路径列表
             # 支持换行符（\n 或 \r\n）分割
-            paths = [p.strip() for p in video_paths.split('\n') if p.strip()]
+            # 防呆处理：剔除前后空格和引号（包括英文双引号和中文引号）
+            paths = []
+            for p in video_paths.split('\n'):
+                # 去除前后空格
+                p = p.strip()
+                if not p:
+                    continue
+                # 去除前后英文双引号
+                if p.startswith('"') and p.endswith('"'):
+                    p = p[1:-1].strip()
+                # 去除前后中文引号
+                if p.startswith('"') and p.endswith('"'):
+                    p = p[1:-1].strip()
+                if p:
+                    paths.append(p)
 
             if not paths:
                 raise ValueError("请提供至少一个视频文件路径")
@@ -80,6 +94,15 @@ class VideoMergeModule:
 
             # 使用 FFmpeg concat demuxer 合并视频
             await self._merge_videos_with_ffmpeg(local_video_paths, output_path)
+
+            # 合并成功后，删除复制到任务目录的子视频文件以节省磁盘空间
+            for video_path in local_video_paths:
+                try:
+                    if video_path.exists() and video_path != output_path:
+                        video_path.unlink()
+                        Logger.info(f"已删除子视频文件: {video_path}")
+                except Exception as e:
+                    Logger.warning(f"删除子视频文件失败: {video_path}, 错误: {e}")
 
             # 构建结果
             result = {
