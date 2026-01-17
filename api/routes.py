@@ -380,8 +380,10 @@ def register_routes(app) -> None:
         input_type: str = Form("upload"),
         video_file: UploadFile = File(None),
         audio_file: UploadFile = File(None),
+        subtitle_file: UploadFile = File(None),
         video_path: str = Form(None),
         audio_path: str = Form(None),
+        subtitle_path: str = Form(None),
         model_name: str = Form("small"),
         device: str = Form("cpu"),
         generate_subtitle: bool = Form(True),
@@ -389,6 +391,7 @@ def register_routes(app) -> None:
         word_timestamps: bool = Form(False),
         burn_subtitles: str = Form("none"),
         beam_size: int = Form(5),
+        subtitle_bottom_margin: int = Form(20),
         out_basename: str = Form(None),
         # 花字配置
         flower_text: str = Form(None),
@@ -444,8 +447,10 @@ def register_routes(app) -> None:
             input_type: 输入类型 (upload/path)
             video_file: 上传的视频文件
             audio_file: 上传的音频文件
+            subtitle_file: 上传的字幕文件
             video_path: 视频文件路径
             audio_path: 音频文件路径
+            subtitle_path: 字幕文件路径
             model_name: 模型名称
             device: 设备类型
             generate_subtitle: 是否生成字幕
@@ -453,6 +458,7 @@ def register_routes(app) -> None:
             word_timestamps: 是否包含词级时间戳
             burn_subtitles: 字幕烧录类型 (none/hard)
             beam_size: beam search 大小
+            subtitle_bottom_margin: 字幕下沿距离（像素，默认0）
             out_basename: 输出文件名前缀
             flower_text: 花字文字
             flower_font: 花字字体
@@ -504,6 +510,7 @@ def register_routes(app) -> None:
         # 处理上传文件
         video_file_path = None
         audio_file_path = None
+        subtitle_file_path = None
 
         if video_file:
             video_file_path = job_dir / video_file.filename
@@ -514,6 +521,11 @@ def register_routes(app) -> None:
             audio_file_path = job_dir / audio_file.filename
             with open(audio_file_path, "wb") as f:
                 f.write(await audio_file.read())
+
+        if subtitle_file:
+            subtitle_file_path = job_dir / subtitle_file.filename
+            with open(subtitle_file_path, "wb") as f:
+                f.write(await subtitle_file.read())
 
         # 准备花字配置
         flower_config = None
@@ -573,8 +585,10 @@ def register_routes(app) -> None:
             input_type=input_type,
             video_file=str(video_file_path) if video_file_path else None,
             audio_file=str(audio_file_path) if audio_file_path else None,
+            subtitle_file=str(subtitle_file_path) if subtitle_file_path else None,
             video_path=video_path,
             audio_path=audio_path,
+            subtitle_path=subtitle_path,
             model_name=model_name,
             device=device,
             generate_subtitle=generate_subtitle,
@@ -582,6 +596,7 @@ def register_routes(app) -> None:
             word_timestamps=word_timestamps,
             burn_subtitles=burn_subtitles,
             beam_size=beam_size,
+            subtitle_bottom_margin=subtitle_bottom_margin,
             out_basename=out_basename,
             flower_config=flower_config,
             image_config=image_config,
@@ -1300,11 +1315,11 @@ def register_routes(app) -> None:
         overlay_image: UploadFile = File(None),
         base_image_path: str = Form(None),
         overlay_image_path: str = Form(None),
-        position_x: int = Form(0),
-        position_y: int = Form(0),
+        position_x: int = Form(85),
+        position_y: int = Form(90),
         scale: float = Form(1.0),
-        width: int = Form(0),
-        height: int = Form(0),
+        width: int = Form(425),
+        height: int = Form(615),
         remove_bg: bool = Form(False),
         payload: Dict[str, Any] = Depends(verify_token)
     ) -> Dict[str, Any]:

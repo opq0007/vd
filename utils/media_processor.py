@@ -214,7 +214,7 @@ class MediaProcessor:
         return video_width
 
     @staticmethod
-    def burn_hardsub(video_path: Path, srt_path: Path, output_path: Path):
+    def burn_hardsub(video_path: Path, srt_path: Path, output_path: Path, subtitle_bottom_margin: int = 20):
         """
         生成硬字幕视频（将字幕直接烧录到视频画面中）
 
@@ -222,6 +222,7 @@ class MediaProcessor:
             video_path: 视频文件路径
             srt_path: SRT字幕文件路径
             output_path: 输出视频文件路径
+            subtitle_bottom_margin: 字幕下沿距离（像素），默认为0
         """
         from utils.subtitle_generator import SubtitleGenerator
 
@@ -241,7 +242,7 @@ class MediaProcessor:
 
             platform_suffix = "_windows" if os.name == 'nt' else "_linux"
             temp_ass_path = SubtitleGenerator.create_ass_subtitle(
-                srt_path, output_path.parent, video_width, platform_suffix
+                srt_path, output_path.parent, video_width, platform_suffix, subtitle_bottom_margin
             )
 
             if not temp_ass_path.exists():

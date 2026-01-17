@@ -172,7 +172,7 @@ class SubtitleGenerator:
         }
 
     @staticmethod
-    def create_ass_subtitle(srt_path: Path, output_dir: Path, video_width: int, platform_suffix: str = "") -> Path:
+    def create_ass_subtitle(srt_path: Path, output_dir: Path, video_width: int, platform_suffix: str = "", subtitle_bottom_margin: int = 50) -> Path:
         """
         创建ASS字幕文件，支持中文自动换行
 
@@ -181,6 +181,7 @@ class SubtitleGenerator:
             output_dir: 输出目录
             video_width: 视频宽度
             platform_suffix: 平台后缀（用于区分临时文件）
+            subtitle_bottom_margin: 字幕下沿距离（像素），默认为50
 
         Returns:
             Path: ASS文件路径
@@ -199,7 +200,7 @@ PlayResY: {video_width // 16 * 9}  # 保持16:9比例
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: Default,{style_config['font_name']},{style_config['font_size']},{style_config['primary_color']},{style_config['secondary_color']},{style_config['outline_color']},{style_config['back_color']},{style_config['bold']},{style_config['italic']},0,0,100,100,0,0,{style_config['border_style']},{style_config['outline']},{style_config['shadow']},{style_config['alignment']},{style_config['margin']},{style_config['margin']},5,{style_config['encoding']}
+Style: Default,{style_config['font_name']},{style_config['font_size']},{style_config['primary_color']},{style_config['secondary_color']},{style_config['outline_color']},{style_config['back_color']},{style_config['bold']},{style_config['italic']},0,0,100,100,0,0,{style_config['border_style']},{style_config['outline']},{style_config['shadow']},{style_config['alignment']},{style_config['margin']},{style_config['margin']},{subtitle_bottom_margin},{style_config['encoding']}
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text"""

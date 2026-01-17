@@ -29,8 +29,10 @@ class SubtitleModule:
         input_type: str = "upload",
         video_file: Optional[str] = None,
         audio_file: Optional[str] = None,
+        subtitle_file: Optional[str] = None,
         video_path: Optional[str] = None,
         audio_path: Optional[str] = None,
+        subtitle_path: Optional[str] = None,
         model_name: str = "small",
         device: str = "cpu",
         generate_subtitle: bool = True,
@@ -38,6 +40,7 @@ class SubtitleModule:
         word_timestamps: bool = False,
         burn_subtitles: str = "none",
         beam_size: int = 5,
+        subtitle_bottom_margin: int = 20,
         out_basename: Optional[str] = None,
         # 花字配置
         flower_config: Optional[Dict[str, Any]] = None,
@@ -67,8 +70,10 @@ class SubtitleModule:
             input_type: 输入类型 (upload/path/separate_audio)
             video_file: 上传的视频文件路径
             audio_file: 上传的音频文件路径
+            subtitle_file: 上传的字幕文件路径
             video_path: 视频文件路径（URL或本地路径）
             audio_path: 音频文件路径（URL或本地路径）
+            subtitle_path: 字幕文件路径（URL或本地路径）
             model_name: Whisper模型名称
             device: 设备类型
             generate_subtitle: 是否生成字幕
@@ -76,6 +81,7 @@ class SubtitleModule:
             word_timestamps: 是否包含词级时间戳
             burn_subtitles: 字幕烧录类型 (none/hard/soft)
             beam_size: beam search 大小
+            subtitle_bottom_margin: 字幕下沿距离（像素）
             out_basename: 输出文件名前缀
             flower_config: 花字配置
             image_config: 插图配置
@@ -107,6 +113,7 @@ class SubtitleModule:
             # 处理输入文件
             local_input = None  # 视频文件路径
             audio_input = None  # 音频文件路径
+            local_subtitle = None  # 字幕文件路径
 
             if input_type == "upload":
                 # 处理上传文件 - Gradio返回的格式可能是：
@@ -154,6 +161,14 @@ class SubtitleModule:
                         shutil.copy2(audio_file, audio_input)
                         Logger.info(f"复制音频文件: {audio_file} -> {audio_input}")
 
+                # 处理字幕文件
+                if subtitle_file:
+                    if isinstance(subtitle_file, str):
+                        subtitle_file_path = Path(subtitle_file)
+                        local_subtitle = job_dir / subtitle_file_path.name
+                        shutil.copy2(subtitle_file, local_subtitle)
+                        Logger.info(f"复制字幕文件: {subtitle_file} -> {local_subtitle}")
+
                 # 验证至少有一个输入文件
                 if not local_input and not audio_input:
                     Logger.warning("Upload模式: video_file和audio_file都为空！")
@@ -172,6 +187,11 @@ class SubtitleModule:
                 if audio_path:
                     audio_input = FileUtils.process_path_input(audio_path, job_dir)
                     Logger.info(f"处理音频路径: {audio_path} -> {audio_input}")
+
+                # 处理字幕文件
+                if subtitle_path:
+                    local_subtitle = FileUtils.process_path_input(subtitle_path, job_dir)
+                    Logger.info(f"处理字幕路径: {subtitle_path} -> {local_subtitle}")
 
                 # 验证至少有一个输入文件
                 if not local_input and not audio_input:
@@ -230,8 +250,12 @@ class SubtitleModule:
             # 准备音频文件用于转录
             audio_for_transcription = None
             if generate_subtitle:
-                # 优先使用调整后的音频进行转录
-                if adjusted_audio_for_transcription:
+                # 优先级：字幕文件 > 音频文件 > 视频文件
+                if local_subtitle:
+                    # 有字幕文件，直接使用，不进行语音识别
+                    Logger.info("使用上传的字幕文件，跳过语音识别")
+                    audio_for_transcription = None  # 不需要音频转录
+                elif adjusted_audio_for_transcription:
                     audio_for_transcription = adjusted_audio_for_transcription
                     Logger.info("使用调整后的音频进行语音识别，确保字幕时间轴与视频同步")
                 elif audio_input:
@@ -244,7 +268,7 @@ class SubtitleModule:
 
             # 转录音频
             segments = None
-            if generate_subtitle and audio_for_transcription:
+            if generate_subtitle and audio_for_transcription and not local_subtitle:
                 segments = await whisper_service.transcribe_advanced(
                     audio_for_transcription,
                     model_name=model_name,
@@ -258,7 +282,17 @@ class SubtitleModule:
             srt_path = None
             bilingual_srt_path = None
 
-            if segments and generate_subtitle:
+            if local_subtitle:
+                # 使用上传的字幕文件
+                srt_path = local_subtitle
+                Logger.info(f"使用上传的字幕文件: {srt_path}")
+                
+                # 如果需要双语字幕，尝试翻译
+                if bilingual:
+                    # TODO: 实现字幕翻译功能
+                    Logger.info("双语字幕功能暂未实现")
+            elif segments and generate_subtitle:
+                # 从语音识别生成字幕
                 # LLM 字幕纠错
                 if enable_llm_correction and reference_text and reference_text.strip():
                     try:
@@ -358,7 +392,7 @@ class SubtitleModule:
 
                 try:
                     Logger.info(f"开始烧录硬字幕: {base_video} + {srt_to_use} -> {hardsub_video}")
-                    MediaProcessor.burn_hardsub(base_video, srt_to_use, hardsub_video)
+                    MediaProcessor.burn_hardsub(base_video, srt_to_use, hardsub_video, subtitle_bottom_margin)
                     video_output = hardsub_video
                     Logger.info(f"硬字幕视频生成成功: {video_output}")
                 except Exception as e:
