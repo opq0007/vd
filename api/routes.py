@@ -18,6 +18,7 @@ from modules.tts_onnx_module import tts_onnx_module
 from modules.subtitle_module import subtitle_module
 from modules.transition_module import transition_module
 from modules.video_editor_module import video_editor_module
+from modules.image_processing_module import image_processing_module
 from utils.logger import Logger
 from utils.media_processor import MediaProcessor
 
@@ -1246,6 +1247,147 @@ def register_routes(app) -> None:
             import traceback
             Logger.error(traceback.format_exc())
             raise HTTPException(status_code=500, detail=f"处理失败: {str(e)}")
+
+    # ==================== 图像处理 ====================
+    @api_router.post("/image/remove_background")
+    async def remove_background(
+        input_type: str = Form("upload"),
+        image: UploadFile = File(None),
+        image_path: str = Form(None),
+        payload: Dict[str, Any] = Depends(verify_token)
+    ) -> Dict[str, Any]:
+        """
+        去除图片背景
+
+        Args:
+            input_type: 输入类型 (upload/path)
+            image: 图片文件（upload模式）
+            image_path: 图片文件路径（path模式，支持URL或本地路径）
+            payload: 认证载荷
+
+        Returns:
+            Dict[str, Any]: 去背景结果
+        """
+        from utils.file_utils import FileUtils
+        job_dir = FileUtils.create_job_dir()
+
+        actual_image_path = None
+
+        if input_type == "upload":
+            if not image:
+                raise HTTPException(status_code=400, detail="请上传图片文件")
+            image_file_path = job_dir / image.filename
+            with open(image_file_path, "wb") as f:
+                f.write(await image.read())
+            actual_image_path = str(image_file_path)
+        else:  # path
+            if not image_path or not image_path.strip():
+                raise HTTPException(status_code=400, detail="请提供图片文件路径")
+            actual_image_path = image_path
+
+        result = await image_processing_module.remove_background(
+            image_path=actual_image_path,
+            input_type=input_type,
+            job_dir=job_dir
+        )
+
+        return result
+
+    @api_router.post("/image/blend")
+    async def blend_images(
+        input_type: str = Form("upload"),
+        base_image: UploadFile = File(None),
+        overlay_image: UploadFile = File(None),
+        base_image_path: str = Form(None),
+        overlay_image_path: str = Form(None),
+        position_x: int = Form(0),
+        position_y: int = Form(0),
+        scale: float = Form(1.0),
+        width: int = Form(0),
+        height: int = Form(0),
+        remove_bg: bool = Form(False),
+        payload: Dict[str, Any] = Depends(verify_token)
+    ) -> Dict[str, Any]:
+        """
+        图片混合：将第二张图片叠加到第一张图片上
+
+        Args:
+            input_type: 输入类型 (upload/path)
+            base_image: 基础图片（upload模式）
+            overlay_image: 叠加图片（upload模式）
+            base_image_path: 基础图片路径（path模式，支持URL或本地路径）
+            overlay_image_path: 叠加图片路径（path模式，支持URL或本地路径）
+            position_x: X坐标
+            position_y: Y坐标
+            scale: 缩放比例（当width和height都为0时使用）
+            width: 宽度（直接指定，优先级高于scale，0表示不指定）
+            height: 高度（直接指定，优先级高于scale，0表示不指定）
+            remove_bg: 是否去除叠加图片的背景
+            payload: 认证载荷
+
+        Returns:
+            Dict[str, Any]: 混合结果
+        """
+        from utils.file_utils import FileUtils
+        job_dir = FileUtils.create_job_dir()
+
+        actual_base_path = None
+        actual_overlay_path = None
+
+        if input_type == "upload":
+            if not base_image or not overlay_image:
+                raise HTTPException(status_code=400, detail="请上传两张图片文件")
+            
+            base_image_file_path = job_dir / base_image.filename
+            overlay_image_file_path = job_dir / overlay_image.filename
+
+            with open(base_image_file_path, "wb") as f:
+                f.write(await base_image.read())
+
+            with open(overlay_image_file_path, "wb") as f:
+                f.write(await overlay_image.read())
+
+            actual_base_path = str(base_image_file_path)
+            actual_overlay_path = str(overlay_image_file_path)
+        else:  # path
+            if not base_image_path or not base_image_path.strip() or not overlay_image_path or not overlay_image_path.strip():
+                raise HTTPException(status_code=400, detail="请提供两张图片的文件路径")
+            actual_base_path = base_image_path
+            actual_overlay_path = overlay_image_path
+
+        # 处理宽高参数（0表示不指定）
+        width_param = width if width > 0 else None
+        height_param = height if height > 0 else None
+
+        result = await image_processing_module.blend_images(
+            base_image_path=actual_base_path,
+            overlay_image_path=actual_overlay_path,
+            input_type=input_type,
+            position_x=position_x,
+            position_y=position_y,
+            scale=scale,
+            width=width_param,
+            height=height_param,
+            remove_bg=remove_bg,
+            job_dir=job_dir
+        )
+
+        return result
+
+    @api_router.get("/image/model_info")
+    async def get_image_model_info(
+        payload: Dict[str, Any] = Depends(verify_token)
+    ) -> Dict[str, Any]:
+        """
+        获取图像处理模型信息
+
+        Args:
+            payload: 认证载荷
+
+        Returns:
+            Dict[str, Any]: 模型信息
+        """
+        return await image_processing_module.get_model_info()
 
     # ==================== 视频合并 ====================
     @api_router.post("/video_merge/merge")
