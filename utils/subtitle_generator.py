@@ -12,8 +12,156 @@ from typing import List
 from utils.logger import Logger
 
 
+class SubtitleSegment:
+    """字幕段数据类"""
+    def __init__(self, start: float, end: float, text: str):
+        self.start = start
+        self.end = end
+        self.text = text
+
+
 class SubtitleGenerator:
     """字幕生成工具类"""
+
+    @staticmethod
+    def split_long_segments(
+        segments: List,
+        max_chars_per_line: int = 20,
+        max_lines_per_segment: int = 2
+    ) -> List:
+        """
+        智能分割过长的字幕段
+
+        Args:
+            segments: 原始字幕段列表
+            max_chars_per_line: 每行最大字符数（默认20）
+            max_lines_per_segment: 每段最大行数（默认2）
+
+        Returns:
+            List: 分割后的字幕段列表
+        """
+        result_segments = []
+
+        for seg in segments:
+            text = seg.text.strip()
+            duration = seg.end - seg.start
+            text_length = len(text)
+
+            # 如果文本长度很短（严格小于单行），直接使用
+            if text_length < max_chars_per_line:
+                result_segments.append(seg)
+                continue
+
+            # 文本长度等于或超过 max_chars_per_line，检查是否需要分割
+            # 检查是否包含标点符号（支持中英文标点）
+            has_punctuation = any(c in text for c in '。！？，；、.!?;,')
+
+            if not has_punctuation:
+                # 没有标点符号，且长度不超过 max_chars_per_line * max_lines_per_segment，直接使用
+                if text_length <= max_chars_per_line * max_lines_per_segment:
+                    result_segments.append(seg)
+                    continue
+
+            # 需要分割
+            Logger.info(f"分割过长的字幕段: {text_length} 字符，时长 {duration:.2f} 秒")
+
+            # 使用递归分割函数
+            parts = SubtitleGenerator._split_text_by_punctuation(
+                text, max_chars_per_line
+            )
+
+            # 为每个部分分配时间戳
+            if len(parts) > 1:
+                total_chars = sum(len(p) for p in parts)
+                current_start = seg.start
+
+                for part in parts:
+                    # 根据字符数比例分配时间
+                    part_duration = duration * (len(part) / total_chars)
+                    part_end = current_start + part_duration
+
+                    # 创建新的字幕段
+                    new_seg = SubtitleSegment(
+                        start=current_start,
+                        end=part_end,
+                        text=part
+                    )
+                    result_segments.append(new_seg)
+
+                    current_start = part_end
+            else:
+                result_segments.append(seg)
+
+        Logger.info(f"分段处理完成: 原始 {len(segments)} 段 → 处理后 {len(result_segments)} 段")
+        return result_segments
+
+    @staticmethod
+    def _split_text_by_punctuation(text: str, max_chars: int) -> List[str]:
+        """
+        按照标点符号智能分割文本，确保每段不超过 max_chars
+
+        Args:
+            text: 要分割的文本
+            max_chars: 每段最大字符数
+
+        Returns:
+            List[str]: 分割后的文本列表
+        """
+        # 如果文本长度严格小于 max_chars，不需要分割
+        if len(text) < max_chars:
+            return [text]
+
+        # 如果文本长度等于 max_chars，检查是否包含标点符号
+        if len(text) == max_chars:
+            has_punctuation = any(c in text for c in '。！？，；、')
+            if not has_punctuation:
+                return [text]
+            # 如果有标点符号，继续进行分割
+
+        # 递归分割函数
+        def split_recursive(text: str, max_chars: int) -> List[str]:
+            if len(text) <= max_chars:
+                return [text]
+
+            # 寻找最佳分割点
+            best_split_pos = -1
+
+            # 优先级1: 在 max_chars 范围内寻找句号
+            for i in range(min(max_chars, len(text)), 0, -1):
+                if text[i-1] in '。！？.!?':
+                    best_split_pos = i
+                    break
+
+            # 优先级2: 如果没有找到句号，寻找逗号
+            if best_split_pos == -1:
+                for i in range(min(max_chars, len(text)), 0, -1):
+                    if text[i-1] in '，；,;':
+                        best_split_pos = i
+                        break
+
+            # 优先级3: 如果没有找到逗号，寻找顿号
+            if best_split_pos == -1:
+                for i in range(min(max_chars, len(text)), 0, -1):
+                    if text[i-1] in '、':
+                        best_split_pos = i
+                        break
+
+            # 优先级4: 如果没有找到任何标点，在 max_chars 处强制分割
+            if best_split_pos == -1:
+                best_split_pos = min(max_chars, len(text))
+
+            # 分割文本
+            first_part = text[:best_split_pos].strip()
+            second_part = text[best_split_pos:].strip()
+
+            # 递归处理两部分
+            result = []
+            result.extend(split_recursive(first_part, max_chars))
+            result.extend(split_recursive(second_part, max_chars))
+
+            return result
+
+        return split_recursive(text, max_chars)
 
     @staticmethod
     def format_timestamp(seconds: float) -> str:
@@ -35,7 +183,14 @@ class SubtitleGenerator:
         return f"{hours:02d}:{minutes:02d}:{secs:02d},{milliseconds:03d}"
 
     @staticmethod
-    def write_srt(segments, output_path: Path, bilingual: bool = False, translated_segments=None):
+    def write_srt(
+        segments,
+        output_path: Path,
+        bilingual: bool = False,
+        translated_segments=None,
+        max_chars_per_line: int = 20,
+        max_lines_per_segment: int = 2
+    ):
         """
         写入SRT字幕文件
 
@@ -44,9 +199,18 @@ class SubtitleGenerator:
             output_path: 输出文件路径
             bilingual: 是否为双语字幕
             translated_segments: 翻译后的字幕片段
+            max_chars_per_line: 每行最大字符数（默认20）
+            max_lines_per_segment: 每段最大行数（默认2）
         """
         output_path = Path(output_path).resolve()
         output_path.parent.mkdir(parents=True, exist_ok=True)
+
+        # 智能分割过长的字幕段
+        segments = SubtitleGenerator.split_long_segments(
+            segments,
+            max_chars_per_line=max_chars_per_line,
+            max_lines_per_segment=max_lines_per_segment
+        )
 
         with open(output_path, "w", encoding="utf-8") as f:
             for i, seg in enumerate(segments, start=1):

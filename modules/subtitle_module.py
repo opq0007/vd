@@ -60,6 +60,13 @@ class SubtitleModule:
         # LLM 字幕纠错配置
         enable_llm_correction: bool = False,  # 是否启用 LLM 字幕纠错
         reference_text: Optional[str] = None,  # 参考文本，用于字幕纠错
+        # Whisper 时间戳分段优化配置
+        vad_filter: bool = True,  # 启用 VAD 语音活动检测
+        condition_on_previous_text: bool = False,  # 不依赖前文，产生更自然的分段
+        temperature: float = 0.0,  # 温度参数，0 表示更保守
+        # 字幕显示参数（后处理）
+        max_chars_per_line: int = 20,  # 每行最大字符数
+        max_lines_per_segment: int = 2,  # 每段最大行数
         # 任务目录配置（可选）
         job_dir: Optional[Path] = None  # 可选的任务目录，如果提供则使用该目录
     ) -> Dict[str, Any]:
@@ -275,7 +282,11 @@ class SubtitleModule:
                     device=device,
                     beam_size=beam_size,
                     task="transcribe",
-                    word_timestamps=word_timestamps
+                    word_timestamps=word_timestamps,
+                    # 基础参数
+                    vad_filter=vad_filter,
+                    condition_on_previous_text=condition_on_previous_text,
+                    temperature=temperature
                 )
 
             # 生成字幕文件
@@ -326,7 +337,11 @@ class SubtitleModule:
 
                 # 生成字幕文件
                 srt_path = job_dir / f"{out_basename}.srt"
-                SubtitleGenerator.write_srt(segments, srt_path, bilingual=False)
+                SubtitleGenerator.write_srt(
+                    segments, srt_path, bilingual=False,
+                    max_chars_per_line=max_chars_per_line,
+                    max_lines_per_segment=max_lines_per_segment
+                )
 
                 # 生成双语字幕
                 if bilingual:
@@ -336,13 +351,19 @@ class SubtitleModule:
                         device=device,
                         beam_size=beam_size,
                         task="translate",
-                        word_timestamps=word_timestamps
+                        word_timestamps=word_timestamps,
+                        # 基础参数
+                        vad_filter=vad_filter,
+                        condition_on_previous_text=condition_on_previous_text,
+                        temperature=temperature
                     )
                     bilingual_srt_path = job_dir / f"{out_basename}_bilingual.srt"
                     SubtitleGenerator.write_srt(
                         segments, bilingual_srt_path,
                         bilingual=True,
-                        translated_segments=translated_segments
+                        translated_segments=translated_segments,
+                        max_chars_per_line=max_chars_per_line,
+                        max_lines_per_segment=max_lines_per_segment
                     )
 
             # 合并音视频（如果需要）

@@ -436,10 +436,17 @@ def register_routes(app) -> None:
         # 原音频保留配置
         keep_original_audio: bool = Form(True),
         # LLM 字幕纠错配置
-        enable_llm_correction: bool = Form(False),
-        reference_text: str = Form(None),
-        payload: Dict[str, Any] = Depends(verify_token)
-    ) -> Dict[str, Any]:
+                enable_llm_correction: bool = Form(False),
+                reference_text: str = Form(None),
+                # Whisper 基础参数
+                vad_filter: bool = Form(True),
+                condition_on_previous_text: bool = Form(False),
+                temperature: float = Form(0.0),
+                # 字幕显示参数（后处理）
+                max_chars_per_line: int = Form(20),
+                max_lines_per_segment: int = Form(2),
+        
+                payload: Dict[str, Any] = Depends(verify_token)    ) -> Dict[str, Any]:
         """
         生成视频字幕（高级版）
 
@@ -499,6 +506,11 @@ def register_routes(app) -> None:
             keep_original_audio: 是否保留原视频音频（默认True，保留并混合；False则替换原音频）
             enable_llm_correction: 是否启用 LLM 字幕纠错（使用智谱 AI）
             reference_text: 参考文本，用于字幕纠错
+            vad_filter: 启用 VAD 语音活动检测（默认True）
+            condition_on_previous_text: 不依赖前文分段（默认False），产生更自然的分段
+            temperature: 温度参数（默认0.0），控制预测的随机性
+            max_chars_per_line: 字幕每行最大字符数（默认20），超过会自动分割
+            max_lines_per_segment: 字幕每段最大行数（默认2），超过会自动分割
             payload: 认证载荷
 
         Returns:
@@ -605,6 +617,13 @@ def register_routes(app) -> None:
             keep_original_audio=keep_original_audio,
             enable_llm_correction=enable_llm_correction,
             reference_text=reference_text,
+            # Whisper 基础参数
+            vad_filter=vad_filter,
+            condition_on_previous_text=condition_on_previous_text,
+            temperature=temperature,
+            # 字幕显示参数（后处理）
+            max_chars_per_line=max_chars_per_line,
+            max_lines_per_segment=max_lines_per_segment,
             job_dir=job_dir  # 传递 job_dir，确保在同一个目录下处理
         )
 
@@ -1002,6 +1021,13 @@ def register_routes(app) -> None:
         reference_text: str = Form(None),
         burn_subtitles: str = Form("hard"),
         out_basename: str = Form(None),
+        # Whisper 基础参数
+        vad_filter: bool = Form(True),
+        condition_on_previous_text: bool = Form(False),
+        temperature: float = Form(0.0),
+        # 字幕显示参数（后处理）
+        max_chars_per_line: int = Form(20),
+        max_lines_per_segment: int = Form(2),
         payload: Dict[str, Any] = Depends(verify_token)
     ) -> Dict[str, Any]:
         """
@@ -1026,6 +1052,11 @@ def register_routes(app) -> None:
             reference_text: 参考文本，用于字幕纠错
             burn_subtitles: 字幕烧录类型 (none/hard)
             out_basename: 输出文件名前缀
+            vad_filter: 启用 VAD 语音活动检测（默认True）
+            condition_on_previous_text: 不依赖前文分段（默认False），产生更自然的分段
+            temperature: 温度参数（默认0.0），控制预测的随机性
+            max_chars_per_line: 字幕每行最大字符数（默认20），超过会自动分割
+            max_lines_per_segment: 字幕每段最大行数（默认2），超过会自动分割
             payload: 认证载荷
 
         Returns:
@@ -1066,7 +1097,14 @@ def register_routes(app) -> None:
                 audio_volume=audio_volume,
                 keep_original_audio=keep_original_audio,
                 enable_llm_correction=enable_llm_correction,
-                reference_text=reference_text
+                reference_text=reference_text,
+                # Whisper 基础参数
+                vad_filter=vad_filter,
+                condition_on_previous_text=condition_on_previous_text,
+                temperature=temperature,
+                # 字幕显示参数（后处理）
+                max_chars_per_line=max_chars_per_line,
+                max_lines_per_segment=max_lines_per_segment
             )
 
             Logger.info(f"一站式处理完成: {result.get('out_basename', 'unknown')}")
@@ -1096,6 +1134,13 @@ def register_routes(app) -> None:
         keep_original_audio: bool = Form(False),
         enable_llm_correction: bool = Form(True),
         burn_subtitles: str = Form("hard"),
+        # Whisper 基础参数
+        vad_filter: bool = Form(True),
+        condition_on_previous_text: bool = Form(False),
+        temperature: float = Form(0.0),
+        # 字幕显示参数（后处理）
+        max_chars_per_line: int = Form(20),
+        max_lines_per_segment: int = Form(2),
         out_basename: str = Form(None),
         payload: Dict[str, Any] = Depends(verify_token)
     ) -> Dict[str, Any]:
@@ -1124,6 +1169,11 @@ def register_routes(app) -> None:
             enable_llm_correction: 是否启用LLM字幕纠错（默认True）
             burn_subtitles: 字幕烧录类型 (none/hard，默认hard)
             out_basename: 输出文件名前缀
+            vad_filter: 启用 VAD 语音活动检测（默认True）
+            condition_on_previous_text: 不依赖前文分段（默认False），产生更自然的分段
+            temperature: 温度参数（默认0.0），控制预测的随机性
+            max_chars_per_line: 字幕每行最大字符数（默认20），超过会自动分割
+            max_lines_per_segment: 字幕每段最大行数（默认2），超过会自动分割
             payload: 认证载荷
 
         Returns:
@@ -1195,6 +1245,13 @@ def register_routes(app) -> None:
                 keep_original_audio=keep_original_audio,
                 enable_llm_correction=enable_llm_correction,
                 reference_text=text_content,  # 使用输入的文本内容作为参考文本
+                # Whisper 基础参数
+                vad_filter=vad_filter,
+                condition_on_previous_text=condition_on_previous_text,
+                temperature=temperature,
+                # 字幕显示参数（后处理）
+                max_chars_per_line=max_chars_per_line,
+                max_lines_per_segment=max_lines_per_segment,
                 job_dir=job_dir  # 传递 job_dir，确保在同一个目录下处理
             )
             

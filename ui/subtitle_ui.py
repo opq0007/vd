@@ -87,6 +87,48 @@ def create_subtitle_interface() -> gr.Blocks:
                     bilingual = gr.Checkbox(label="双语字幕", value=False)
                     word_timestamps = gr.Checkbox(label="词级时间戳", value=False)
 
+                # Whisper 时间戳分段优化参数
+                gr.Markdown("### 🎯 Whisper 参数")
+                with gr.Row():
+                    vad_filter = gr.Checkbox(
+                        label="启用 VAD 语音活动检测",
+                        value=True,
+                        info="启用后能更准确地检测语音边界"
+                    )
+                    condition_on_previous_text = gr.Checkbox(
+                        label="不依赖前文分段",
+                        value=True,
+                        info="启用后不依赖前文内容，产生更自然的分段"
+                    )
+                    temperature = gr.Slider(
+                        minimum=0.0,
+                        maximum=1.0,
+                        value=0.0,
+                        step=0.1,
+                        label="温度参数",
+                        info="控制预测的随机性，0 表示更保守（推荐），1 表示更随机"
+                    )
+
+                # 字幕显示参数（后处理）
+                gr.Markdown("### 📝 字幕显示参数（后处理）")
+                with gr.Row():
+                    max_chars_per_line = gr.Slider(
+                        minimum=10,
+                        maximum=30,
+                        value=20,
+                        step=2,
+                        label="每行最大字符数",
+                        info="字幕每行显示的最大字符数，超过会自动换行（推荐 20）"
+                    )
+                    max_lines_per_segment = gr.Slider(
+                        minimum=1,
+                        maximum=4,
+                        value=2,
+                        step=1,
+                        label="每段最大行数",
+                        info="每个字幕段的最大行数，超过会自动分割（推荐 2）"
+                    )
+
                 with gr.Row():
                     burn_type = gr.Radio(
                         choices=["none", "hard"],
@@ -259,7 +301,14 @@ def create_subtitle_interface() -> gr.Blocks:
                 audio_volume,
                 keep_original_audio,
                 enable_llm_correction,
-                reference_text
+                reference_text,
+                # Whisper 基础参数
+                vad_filter,
+                condition_on_previous_text,
+                temperature,
+                # 字幕显示参数（后处理）
+                max_chars_per_line,
+                max_lines_per_segment
             ],
             outputs=[
                 job_id_display,
@@ -298,7 +347,14 @@ async def process_subtitle(
     audio_volume: float,
     keep_original_audio: bool,
     enable_llm_correction: bool,
-    reference_text: Optional[str]
+    reference_text: Optional[str],
+    # Whisper 基础参数
+    vad_filter: bool,
+    condition_on_previous_text: bool,
+    temperature: float,
+    # 字幕显示参数（后处理）
+    max_chars_per_line: int,
+    max_lines_per_segment: int
 ) -> Tuple[str, str, dict, Optional[str], Optional[str], Optional[str], str]:
     """
     处理字幕生成（纯字幕功能）
@@ -390,7 +446,14 @@ async def process_subtitle(
             audio_volume=audio_volume,  # 音频音量控制
             keep_original_audio=keep_original_audio,  # 保留原音频
             enable_llm_correction=enable_llm_correction,  # LLM 字幕纠错
-            reference_text=reference_text  # 参考文本
+            reference_text=reference_text,  # 参考文本
+            # Whisper 基础参数
+            vad_filter=vad_filter,
+            condition_on_previous_text=condition_on_previous_text,
+            temperature=temperature,
+            # 字幕显示参数（后处理）
+            max_chars_per_line=max_chars_per_line,
+            max_lines_per_segment=max_lines_per_segment
         )
 
         # 生成任务ID

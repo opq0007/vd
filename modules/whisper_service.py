@@ -142,15 +142,32 @@ class WhisperService:
             raise
 
     async def transcribe_advanced(
-        self,
-        audio_path: Path,
-        model_name: str = None,
-        device: str = None,
-        compute_type: Optional[str] = None,
-        beam_size: int = None,
-        task: Optional[str] = None,
-        word_timestamps: bool = False
-    ) -> List:
+
+            self,
+
+            audio_path: Path,
+
+            model_name: str = None,
+
+            device: str = None,
+
+            compute_type: Optional[str] = None,
+
+            beam_size: int = None,
+
+            task: Optional[str] = None,
+
+            word_timestamps: bool = False,
+
+            # 基础参数：控制转录质量
+
+            vad_filter: bool = True,  # 启用 VAD 语音活动检测
+
+            condition_on_previous_text: bool = False,  # 不依赖前文，产生更自然的分段
+
+            temperature: float = 0.0  # 温度为 0，更保守的预测
+
+        ) -> List:
         """
         高级语音转文字
 
@@ -162,6 +179,9 @@ class WhisperService:
             beam_size: beam search 大小
             task: 任务类型
             word_timestamps: 是否包含词级时间戳
+            vad_filter: 启用 VAD 语音活动检测
+            condition_on_previous_text: 不依赖前文，产生更自然的分段
+            temperature: 温度参数，0 表示更保守
 
         Returns:
             List: 转录片段列表
@@ -180,7 +200,11 @@ class WhisperService:
                     beam_size=beam_size,
                     task=task,
                     word_timestamps=word_timestamps,
-                    language='zh'  # 强制指定为简体中文
+                    language='zh',  # 强制指定为简体中文
+                    # 基础参数
+                    vad_filter=vad_filter,
+                    condition_on_previous_text=condition_on_previous_text,
+                    temperature=temperature
                 )
             )
 
