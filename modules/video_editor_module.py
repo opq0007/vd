@@ -32,6 +32,8 @@ class VideoEditorModule:
         flower_config: Optional[Dict[str, Any]] = None,
         # 插图配置
         image_config: Optional[Dict[str, Any]] = None,
+        # 插视频配置
+        video_config: Optional[Dict[str, Any]] = None,
         # 水印配置
         watermark_config: Optional[Dict[str, Any]] = None,
         out_basename: Optional[str] = None,
@@ -49,6 +51,7 @@ class VideoEditorModule:
             audio_path: 音频文件路径
             flower_config: 花字配置
             image_config: 插图配置
+            video_config: 插视频配置
             watermark_config: 水印配置
             out_basename: 输出文件名前缀
 
@@ -122,17 +125,29 @@ class VideoEditorModule:
 
             # 应用视频效果
             if base_video and FileUtils.is_video_file(str(base_video)):
-                has_effects = flower_config or image_config or watermark_config
+                has_effects = flower_config or image_config or video_config or watermark_config
 
                 if has_effects:
                     temp_effects_video = job_dir / f"{out_basename}_temp_effects{base_video.suffix}"
                     video_output = job_dir / f"{out_basename}_effects{base_video.suffix}"
 
+                    # 处理插视频配置，将视频文件复制到任务目录
+                    local_video_config = None
+                    if video_config and video_config.get('path'):
+                        try:
+                            video_to_insert_path = FileUtils.process_path_input(video_config['path'], job_dir)
+                            if video_to_insert_path and video_to_insert_path.exists():
+                                local_video_config = video_config.copy()
+                                local_video_config['path'] = str(video_to_insert_path)
+                                Logger.info(f"插视频文件已处理: {video_config['path']} -> {video_to_insert_path}")
+                        except Exception as e:
+                            Logger.error(f"处理插视频文件失败: {e}")
+
                     try:
                         VideoEffectsProcessor._current_job_id = out_basename
                         success = VideoEffectsProcessor.apply_video_effects(
                             base_video, temp_effects_video,
-                            flower_config, image_config, watermark_config
+                            flower_config, image_config, local_video_config, watermark_config
                         )
                         VideoEffectsProcessor._current_job_id = None
 
@@ -230,6 +245,11 @@ class VideoEditorModule:
                 "name": "插图",
                 "description": "在视频上插入图片",
                 "params": ["path", "x", "y", "width", "height", "remove_bg", "timing_type"]
+            },
+            "video": {
+                "name": "插视频",
+                "description": "在视频上插入另一个视频的每一帧",
+                "params": ["path", "x", "y", "width", "height", "timing_type"]
             },
             "watermark": {
                 "name": "水印",
