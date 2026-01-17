@@ -353,7 +353,10 @@ def create_video_editor_interface() -> gr.Blocks:
                 status_info = gr.HTML("<div>等待提交任务...</div>")
                 result_status = gr.JSON(label="详细状态", visible=False)
 
-                gr.Markdown("#### 🎬 视频文件")
+                gr.Markdown("#### 🎬 视频预览")
+                video_preview = gr.Video(label="视频预览", visible=False)
+
+                gr.Markdown("#### 📥 视频文件")
                 video_download = gr.File(label="下载处理后的视频文件", visible=False)
 
         # 绑定事件
@@ -415,6 +418,7 @@ def create_video_editor_interface() -> gr.Blocks:
                 job_id_display,
                 status_info,
                 result_status,
+                video_preview,
                 video_download
             ]
         )
@@ -558,7 +562,8 @@ async def process_video_effects(*args):
             job_id,
             status_html,
             result,
-            video_output_path
+            gr.update(value=video_output_path, visible=bool(video_output_path)),
+            gr.update(value=video_output_path, visible=bool(video_output_path))
         )
 
     except Exception as e:
@@ -577,5 +582,6 @@ async def process_video_effects(*args):
             "error",
             status_html,
             {"success": False, "error": str(e)},
-            None
+            gr.update(value=None, visible=False),
+            gr.update(value=None, visible=False)
         )

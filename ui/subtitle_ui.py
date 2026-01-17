@@ -202,7 +202,10 @@ def create_subtitle_interface() -> gr.Blocks:
                 srt_download = gr.File(label="下载SRT字幕文件", visible=False)
                 bilingual_srt_download = gr.File(label="下载双语SRT字幕文件", visible=False)
 
-                gr.Markdown("#### 🎬 视频文件")
+                gr.Markdown("#### 🎬 视频预览")
+                video_preview = gr.Video(label="视频预览", visible=False)
+
+                gr.Markdown("#### 📥 视频文件")
                 video_download = gr.File(label="下载处理后的视频文件", visible=False)
 
                 gr.Markdown("#### 📝 转录文本")
@@ -243,6 +246,7 @@ def create_subtitle_interface() -> gr.Blocks:
                 result_status,
                 srt_download,
                 bilingual_srt_download,
+                video_preview,
                 video_download,
                 transcript_output
             ]
@@ -316,10 +320,11 @@ async def process_subtitle(
                 "error",
                 status_html,
                 {"success": False, "error": "请上传或提供有效的视频/音频文件"},
-                None,
-                None,
-                None,
-                ""
+                gr.update(value=None, visible=False),
+                gr.update(value=None, visible=False),
+                gr.update(value=None, visible=False),
+                gr.update(value=None, visible=False),
+                gr.update(value="", visible=False)
             )
 
         Logger.info(f"开始处理字幕生成 - input_type: {input_type}, video_file: {video_file}, audio_file: {audio_file}")
@@ -388,10 +393,11 @@ async def process_subtitle(
             job_id,
             status_html,
             result,
-            subtitle_path,
-            bilingual_subtitle_path,
-            video_with_subtitle_path,
-            result.get("transcript_text", "")
+            gr.update(value=subtitle_path, visible=bool(subtitle_path)),
+            gr.update(value=bilingual_subtitle_path, visible=bool(bilingual_subtitle_path)),
+            gr.update(value=video_with_subtitle_path, visible=bool(video_with_subtitle_path)),
+            gr.update(value=video_with_subtitle_path, visible=bool(video_with_subtitle_path)),
+            gr.update(value=result.get("transcript_text", ""), visible=bool(result.get("transcript_text")))
         )
 
     except Exception as e:
@@ -410,8 +416,9 @@ async def process_subtitle(
             "error",
             status_html,
             {"success": False, "error": str(e)},
-            None,
-            None,
-            None,
-            ""
+            gr.update(value=None, visible=False),
+            gr.update(value=None, visible=False),
+            gr.update(value=None, visible=False),
+            gr.update(value=None, visible=False),
+            gr.update(value="", visible=False)
         )

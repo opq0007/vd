@@ -48,7 +48,10 @@ def create_video_merge_interface() -> gr.Blocks:
                 status_info = gr.HTML("<div>等待提交任务...</div>")
                 result_status = gr.JSON(label="详细状态", visible=False)
 
-                gr.Markdown("#### 🎬 合并后的视频")
+                gr.Markdown("#### 🎬 视频预览")
+                video_preview = gr.Video(label="视频预览", visible=False)
+
+                gr.Markdown("#### 📥 合并后的视频")
                 video_output = gr.File(label="下载合并后的视频文件", visible=False)
 
                 gr.Markdown("#### 📊 合并信息")
@@ -67,6 +70,7 @@ def create_video_merge_interface() -> gr.Blocks:
                 job_id_display,
                 status_info,
                 result_status,
+                video_preview,
                 video_output,
                 merge_info
             ]
@@ -148,7 +152,8 @@ async def process_video_merge(
             job_id,
             status_html,
             result,
-            output_path,
+            gr.update(value=output_path, visible=bool(output_path)),
+            gr.update(value=output_path, visible=bool(output_path)),
             merge_info_text
         )
 
@@ -168,6 +173,7 @@ async def process_video_merge(
             "error",
             status_html,
             {"success": False, "error": str(e)},
-            None,
+            gr.update(value=None, visible=False),
+            gr.update(value=None, visible=False),
             f"错误: {str(e)}"
         )
