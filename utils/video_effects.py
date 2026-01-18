@@ -982,6 +982,11 @@ class VideoEffectsProcessor:
         Returns:
             是否成功
         """
+        import tempfile
+        import shutil
+        import subprocess
+
+        temp_dir = None
         try:
             # 检查是否有效果需要应用
             has_effects = flower_config or image_config or video_config or watermark_config
@@ -1003,39 +1008,22 @@ class VideoEffectsProcessor:
 
             Logger.info(f"视频信息: {width}x{height}, {fps}fps, {total_frames}帧")
 
-            # 创建视频写入器 - 尝试多个编码器以确保兼容性
-            encoders_to_try = [
-                ('XVID', 'XVID'),  # XVID编码器，兼容性好
-                ('MP4V', 'MP4V'),  # MP4编码器
-                ('MJPG', 'MJPG'),  # MJPEG编码器
-                ('avc1', 'avc1'),  # AVC/H.264编码器
-            ]
+            # 使用临时目录存储帧序列，然后用FFmpeg编码为H.264
+            import shutil
+            import subprocess
 
-            out = None
-            successful_encoder = None
-            for encoder_name, fourcc_code in encoders_to_try:
-                try:
-                    fourcc = cv2.VideoWriter_fourcc(*fourcc_code)
-                    test_out = cv2.VideoWriter(str(output_path), fourcc, fps, (width, height))
-                    if test_out.isOpened():
-                        test_out.release()
-                        out = cv2.VideoWriter(str(output_path), fourcc, fps, (width, height))
-                        successful_encoder = encoder_name
-                        Logger.info(f"Using video encoder: {encoder_name}")
-                        break
-                except Exception as e:
-                    Logger.warning(f"Failed to use encoder {encoder_name}: {e}")
-                    continue
+            temp_dir = Path(tempfile.mkdtemp(prefix='video_effects_'))
+            Logger.info(f"使用临时目录存储帧序列: {temp_dir}")
 
-            if out is None:
-                # 如果所有编码器都失败，尝试使用默认编码器
-                try:
-                    out = cv2.VideoWriter(str(output_path), -1, fps, (width, height))
-                    successful_encoder = "default"
-                    Logger.info("Using default video encoder")
-                except Exception as e:
-                    Logger.error(f"Failed to initialize any video encoder: {e}")
-                    raise Exception("无法初始化视频编码器")
+            # 创建视频写入器 - 使用临时文件
+            temp_video_path = temp_dir / "temp_video.mp4"
+            fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+            out = cv2.VideoWriter(str(temp_video_path), fourcc, fps, (width, height))
+
+            if not out.isOpened():
+                raise Exception("无法初始化视频编码器")
+
+            Logger.info(f"使用临时视频编码器: mp4v")
 
             # 预处理效果资源
             flower_img = None
@@ -1428,9 +1416,65 @@ class VideoEffectsProcessor:
                 video_cap.release()
             out.release()
 
+            # 使用FFmpeg将临时视频转换为高效的H.264格式
+            Logger.info(f"开始使用FFmpeg转换为H.264格式...")
+            ffmpeg_path = SystemUtils.get_ffmpeg_path()
+            if ffmpeg_path:
+                try:
+                    # FFmpeg命令：使用H.264编码，设置合理的压缩参数
+                    cmd = [
+                        ffmpeg_path, "-y",
+                        "-i", str(temp_video_path),
+                        "-c:v", "libx264",
+                        "-preset", "medium",  # 编码速度与压缩率的平衡
+                        "-crf", "23",  # 质量参数，18-28之间，23为默认值
+                        "-pix_fmt", "yuv420p",  # 确保兼容性
+                        "-c:a", "aac",  # 音频编码
+                        "-b:a", "192k",  # 音频比特率
+                        "-movflags", "+faststart",  # 优化流媒体播放
+                        str(output_path)
+                    ]
+
+                    Logger.info(f"FFmpeg命令: {' '.join(cmd)}")
+                    result = subprocess.run(cmd, capture_output=True, text=True)
+
+                    if result.returncode == 0:
+                        Logger.info(f"FFmpeg转换成功: {output_path}")
+                    else:
+                        Logger.error(f"FFmpeg转换失败: {result.stderr}")
+                        # 如果FFmpeg失败，使用临时视频
+                        shutil.copy2(temp_video_path, output_path)
+                        Logger.warning(f"使用临时视频作为输出: {output_path}")
+                except Exception as ffmpeg_error:
+                    Logger.error(f"FFmpeg转换异常: {ffmpeg_error}")
+                    # 如果FFmpeg异常，使用临时视频
+                    shutil.copy2(temp_video_path, output_path)
+                    Logger.warning(f"使用临时视频作为输出: {output_path}")
+            else:
+                Logger.warning("未找到FFmpeg，使用临时视频作为输出")
+                shutil.copy2(temp_video_path, output_path)
+
+            # 清理临时目录
+            try:
+                shutil.rmtree(temp_dir)
+                Logger.info(f"临时目录已清理: {temp_dir}")
+            except Exception as cleanup_error:
+                Logger.warning(f"清理临时目录失败: {cleanup_error}")
+
             Logger.info(f"Video effects applied successfully: {output_path}")
             return True
 
         except Exception as e:
             Logger.error(f"Failed to apply video effects: {e}")
+            import traceback
+            Logger.error(traceback.format_exc())
+
+            # 清理临时目录（如果存在）
+            if temp_dir and Path(temp_dir).exists():
+                try:
+                    shutil.rmtree(temp_dir)
+                    Logger.info(f"异常情况下清理临时目录: {temp_dir}")
+                except Exception as cleanup_error:
+                    Logger.warning(f"清理临时目录失败: {cleanup_error}")
+
             return False
