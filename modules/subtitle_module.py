@@ -452,9 +452,11 @@ class SubtitleModule:
             if bilingual_srt_path and bilingual_srt_path.exists():
                 result["bilingual_subtitle_path"] = str(bilingual_srt_path)
             if video_output and video_output.exists():
+                result["video_output_path"] = str(video_output)
                 result["video_with_subtitle_path"] = str(video_output)
             elif base_video and base_video.exists():
                 # 如果video_output不存在但base_video存在，返回base_video
+                result["video_output_path"] = str(base_video)
                 result["video_with_subtitle_path"] = str(base_video)
 
             if segments:

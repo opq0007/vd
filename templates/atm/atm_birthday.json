@@ -143,7 +143,7 @@
       "params": {
         "videos": "out_1_赛罗.mp4\n ${task7.output}\n out_3.mp4\n ${task2.output}\n ${task5.output}\n ${task4.output}",
         "output_name": "final_video",
-        "delete_intermediate_videos": false
+        "delete_intermediate_videos": true
       },
       "depends_on": ["task2", "task4", "task5", "task7"]
     }
