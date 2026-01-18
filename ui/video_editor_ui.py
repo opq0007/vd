@@ -66,16 +66,41 @@ def create_video_editor_interface() -> gr.Blocks:
                             label="字体"
                         )
                         flower_size = gr.Slider(
-                            minimum=20, maximum=100, value=40, step=5,
+                            minimum=20, maximum=100, value=75, step=5,
                             label="字体大小"
                         )
                     with gr.Row():
+                        flower_color_mode = gr.Radio(
+                            choices=["单色", "渐变色"],
+                            value="单色",
+                            label="颜色模式"
+                        )
+                    with gr.Row():
                         flower_color = gr.ColorPicker(
-                            label="文字颜色",
+                            label="文字颜色（单色）",
                             value="#FFFFFF",
                             info="选择花字的文字颜色",
                             show_label=True
                         )
+                    with gr.Group(visible=False) as flower_gradient_group:
+                        gr.Markdown("#### 🎨 渐变色设置")
+                        with gr.Row():
+                            flower_gradient_type = gr.Radio(
+                                choices=["水平渐变", "垂直渐变", "对角渐变"],
+                                value="对角渐变",
+                                label="渐变方向"
+                            )
+                        with gr.Row():
+                            flower_color_start = gr.ColorPicker(
+                                label="起始颜色",
+                                value="#87CEEB",
+                                info="渐变的起始颜色"
+                            )
+                            flower_color_end = gr.ColorPicker(
+                                label="结束颜色",
+                                value="#FFFFFF",
+                                info="渐变的结束颜色"
+                            )
                     with gr.Row():
                         flower_x = gr.Slider(
                             minimum=0, maximum=1920, value=100, step=10,
@@ -91,7 +116,7 @@ def create_video_editor_interface() -> gr.Blocks:
                                 label="启用描边",
                                 value=False,
                                 info="为文字添加描边效果"
-                            )
+                        )
                         with gr.Row():
                             flower_stroke_color = gr.ColorPicker(
                                 label="描边颜色",
@@ -103,6 +128,40 @@ def create_video_editor_interface() -> gr.Blocks:
                                 label="描边宽度",
                                 info="描边的粗细程度"
                             )
+                    with gr.Accordion("✨ 动态效果", open=False):
+                        with gr.Row():
+                            flower_animation_enabled = gr.Checkbox(
+                                label="启用动态效果",
+                                value=False,
+                                info="为花字添加动态效果"
+                            )
+                        with gr.Row():
+                            flower_animation_type = gr.Dropdown(
+                                choices=["无效果", "走马灯", "心动"],
+                                value="无效果",
+                                label="动态效果类型",
+                                info="选择要应用的动态效果"
+                            )
+                        with gr.Group(visible=False) as flower_animation_params_group:
+                            gr.Markdown("#### 📊 动态效果参数")
+                            with gr.Row():
+                                flower_animation_speed = gr.Slider(
+                                    minimum=0.5, maximum=5.0, value=1.0, step=0.1,
+                                    label="速度/频率",
+                                    info="动态效果的速度或频率"
+                                )
+                                flower_animation_amplitude = gr.Slider(
+                                    minimum=5.0, maximum=50.0, value=20.0, step=1.0,
+                                    label="振幅/缩放范围",
+                                    info="动态效果的振幅或缩放范围"
+                                )
+                            with gr.Row():
+                                flower_animation_direction = gr.Dropdown(
+                                    choices=["left", "right", "up", "down", "horizontal", "vertical"],
+                                    value="left",
+                                    label="方向",
+                                    info="动态效果的方向"
+                                )
                     with gr.Row():
                         flower_timing_type = gr.Radio(
                             choices=["帧数范围", "时间戳范围"],
@@ -303,6 +362,31 @@ def create_video_editor_interface() -> gr.Blocks:
                     outputs=[flower_frame_group, flower_time_group]
                 )
 
+                def update_flower_color_mode(color_mode):
+                    gradient_visible = color_mode == "渐变色"
+                    solid_visible = color_mode == "单色"
+                    return (
+                        gr.Group(visible=gradient_visible),
+                        gr.ColorPicker(visible=solid_visible)
+                    )
+
+                flower_color_mode.change(
+                    update_flower_color_mode,
+                    inputs=[flower_color_mode],
+                    outputs=[flower_gradient_group, flower_color]
+                )
+
+                def update_flower_animation_visibility(enabled):
+                    return (
+                        gr.Group(visible=enabled)
+                    )
+
+                flower_animation_enabled.change(
+                    update_flower_animation_visibility,
+                    inputs=[flower_animation_enabled],
+                    outputs=[flower_animation_params_group]
+                )
+
                 def update_image_timing_visibility(timing_type):
                     frame_visible = timing_type == "帧数范围"
                     time_visible = timing_type == "时间戳范围"
@@ -370,7 +454,11 @@ def create_video_editor_interface() -> gr.Blocks:
                 flower_text,
                 flower_font,
                 flower_size,
+                flower_color_mode,
                 flower_color,
+                flower_gradient_type,
+                flower_color_start,
+                flower_color_end,
                 flower_x,
                 flower_y,
                 flower_timing_type,
@@ -381,6 +469,11 @@ def create_video_editor_interface() -> gr.Blocks:
                 flower_stroke_enabled,
                 flower_stroke_color,
                 flower_stroke_width,
+                flower_animation_enabled,
+                flower_animation_type,
+                flower_animation_speed,
+                flower_animation_amplitude,
+                flower_animation_direction,
                 # 插视频配置
                 video_insert_path,
                 video_insert_x,
@@ -440,10 +533,14 @@ async def process_video_effects(*args):
         # 解包参数
         (input_type, video_file, video_path,
          # 花字配置
-         flower_text, flower_font, flower_size, flower_color, flower_x, flower_y,
+         flower_text, flower_font, flower_size, flower_color_mode, flower_color,
+         flower_gradient_type, flower_color_start, flower_color_end,
+         flower_x, flower_y,
          flower_timing_type, flower_start_frame, flower_end_frame,
          flower_start_time, flower_end_time,
          flower_stroke_enabled, flower_stroke_color, flower_stroke_width,
+         flower_animation_enabled, flower_animation_type,
+         flower_animation_speed, flower_animation_amplitude, flower_animation_direction,
          # 插视频配置
          video_insert_path, video_insert_x, video_insert_y, video_insert_width, video_insert_height,
          video_insert_timing_type, video_insert_start_frame, video_insert_start_time,
@@ -463,7 +560,11 @@ async def process_video_effects(*args):
                 'text': flower_text,
                 'font': flower_font,
                 'size': int(flower_size),
+                'color_mode': flower_color_mode,
                 'color': flower_color,
+                'gradient_type': flower_gradient_type,
+                'color_start': flower_color_start,
+                'color_end': flower_color_end,
                 'x': int(flower_x),
                 'y': int(flower_y),
                 'timing_type': flower_timing_type,
@@ -473,7 +574,12 @@ async def process_video_effects(*args):
                 'end_time': flower_end_time,
                 'stroke_enabled': flower_stroke_enabled,
                 'stroke_color': flower_stroke_color,
-                'stroke_width': int(flower_stroke_width)
+                'stroke_width': int(flower_stroke_width),
+                'animation_enabled': flower_animation_enabled,
+                'animation_type': flower_animation_type,
+                'animation_speed': float(flower_animation_speed),
+                'animation_amplitude': float(flower_animation_amplitude),
+                'animation_direction': flower_animation_direction
             }
 
         # 准备插图配置

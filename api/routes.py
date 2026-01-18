@@ -396,8 +396,12 @@ def register_routes(app) -> None:
         # 花字配置
         flower_text: str = Form(None),
         flower_font: str = Form("Microsoft YaHei"),
-        flower_size: int = Form(40),
+        flower_size: int = Form(75),
+        flower_color_mode: str = Form("单色"),
         flower_color: str = Form("#FFFFFF"),
+        flower_gradient_type: str = Form("水平渐变"),
+        flower_color_start: str = Form("#FF0000"),
+        flower_color_end: str = Form("#0000FF"),
         flower_x: int = Form(100),
         flower_y: int = Form(100),
         flower_timing_type: str = Form("时间戳范围"),
@@ -408,6 +412,11 @@ def register_routes(app) -> None:
         flower_stroke_enabled: bool = Form(False),
         flower_stroke_color: str = Form("#000000"),
         flower_stroke_width: int = Form(2),
+        flower_animation_enabled: bool = Form(False),
+        flower_animation_type: str = Form("无效果"),
+        flower_animation_speed: float = Form(1.0),
+        flower_animation_amplitude: float = Form(20.0),
+        flower_animation_direction: str = Form("left"),
         # 插图配置
         image_path: str = Form(None),
         image_x: int = Form(200),
@@ -546,7 +555,11 @@ def register_routes(app) -> None:
                 'text': flower_text,
                 'font': flower_font,
                 'size': flower_size,
+                'color_mode': flower_color_mode,
                 'color': flower_color,
+                'gradient_type': flower_gradient_type,
+                'color_start': flower_color_start,
+                'color_end': flower_color_end,
                 'x': flower_x,
                 'y': flower_y,
                 'timing_type': flower_timing_type,
@@ -556,7 +569,12 @@ def register_routes(app) -> None:
                 'end_time': flower_end_time,
                 'stroke_enabled': flower_stroke_enabled,
                 'stroke_color': flower_stroke_color,
-                'stroke_width': flower_stroke_width
+                'stroke_width': flower_stroke_width,
+                'animation_enabled': flower_animation_enabled,
+                'animation_type': flower_animation_type,
+                'animation_speed': flower_animation_speed,
+                'animation_amplitude': flower_animation_amplitude,
+                'animation_direction': flower_animation_direction
             }
 
         # 准备插图配置
@@ -878,7 +896,11 @@ def register_routes(app) -> None:
                 'text': flower_text,
                 'font': flower_font,
                 'size': flower_size,
+                'color_mode': flower_color_mode,
                 'color': flower_color,
+                'gradient_type': flower_gradient_type,
+                'color_start': flower_color_start,
+                'color_end': flower_color_end,
                 'x': flower_x,
                 'y': flower_y,
                 'timing_type': flower_timing_type,
@@ -888,7 +910,12 @@ def register_routes(app) -> None:
                 'end_time': flower_end_time,
                 'stroke_enabled': flower_stroke_enabled,
                 'stroke_color': flower_stroke_color,
-                'stroke_width': flower_stroke_width
+                'stroke_width': flower_stroke_width,
+                'animation_enabled': flower_animation_enabled,
+                'animation_type': flower_animation_type,
+                'animation_speed': flower_animation_speed,
+                'animation_amplitude': flower_animation_amplitude,
+                'animation_direction': flower_animation_direction
             }
 
         # 准备插图配置

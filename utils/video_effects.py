@@ -396,6 +396,162 @@ class VideoEffectsProcessor:
         return start_seconds, end_seconds
 
     @staticmethod
+    def create_gradient_text_image(
+        text: str,
+        font_size: int,
+        font_name: str = None,
+        gradient_type: str = "horizontal",
+        color_start: tuple = (255, 0, 0),
+        color_end: tuple = (0, 0, 255),
+        bg_color: tuple = None,
+        stroke_enabled: bool = False,
+        stroke_color: tuple = (0, 0, 0),
+        stroke_width: int = 2
+    ) -> np.ndarray:
+        """
+        使用Pillow创建渐变色文字图像
+
+        Args:
+            text: 要显示的文字
+            font_size: 字体大小
+            font_name: 字体名称
+            gradient_type: 渐变类型 ("horizontal", "vertical", "diagonal")
+            color_start: 起始颜色 (R, G, B)
+            color_end: 结束颜色 (R, G, B)
+            bg_color: 背景颜色 (R, G, B)，None表示透明
+            stroke_enabled: 是否启用描边
+            stroke_color: 描边颜色 (R, G, B)
+            stroke_width: 描边宽度
+
+        Returns:
+            渐变色文字图像数组
+        """
+        try:
+            from PIL import Image, ImageDraw, ImageFont
+
+            # 确保文本是字符串类型
+            if not isinstance(text, str):
+                text = str(text)
+
+            if not text or not text.strip():
+                Logger.error(f"文本为空或只包含空白字符: '{text}'")
+                raise ValueError("文本内容不能为空")
+
+            Logger.info(f"创建渐变色文字图像: text='{text}', font_size={font_size}, gradient_type={gradient_type}")
+
+            # 创建字体
+            try:
+                if font_name:
+                    font = font_manager.load_font(font_name, font_size)
+                    if font is not None:
+                        Logger.info(f"使用 font_manager 加载字体: {font_name}")
+                    else:
+                        if Path(font_name).exists():
+                            font = ImageFont.truetype(font_name, font_size)
+                        else:
+                            font = ImageFont.truetype(font_name, font_size)
+                else:
+                    default_font_name = font_manager.get_default_font()
+                    if default_font_name:
+                        font = font_manager.load_font(default_font_name, font_size)
+                    else:
+                        font_names = ['simhei.ttf', 'msyh.ttc', 'simhei', 'Microsoft YaHei']
+                        font = None
+                        for fn in font_names:
+                            try:
+                                font = ImageFont.truetype(fn, font_size)
+                                break
+                            except:
+                                continue
+                        if font is None:
+                            font = ImageFont.load_default()
+
+                if font is None:
+                    raise ValueError("字体对象为 None")
+
+            except Exception as e:
+                Logger.error(f"字体加载异常: {e}")
+                raise ValueError(f"字体加载失败: {e}")
+
+            # 计算文本尺寸
+            temp_img = Image.new('RGBA', (1, 1))
+            temp_draw = ImageDraw.Draw(temp_img)
+            bbox = temp_draw.textbbox((0, 0), text, font=font)
+            text_width = bbox[2] - bbox[0]
+            text_height = bbox[3] - bbox[1]
+
+            Logger.info(f"文本尺寸: {text_width}x{text_height}")
+
+            # 创建图像
+            if bg_color is None:
+                img = Image.new('RGBA', (text_width, text_height), (0, 0, 0, 0))
+            else:
+                img = Image.new('RGBA', (text_width, text_height), (*bg_color, 255))
+
+            draw = ImageDraw.Draw(img)
+
+            # 绘制描边
+            if stroke_enabled and stroke_width > 0:
+                Logger.info(f"绘制描边: stroke_enabled={stroke_enabled}, stroke_color={stroke_color}, stroke_width={stroke_width}")
+                for dx in range(-stroke_width, stroke_width + 1):
+                    for dy in range(-stroke_width, stroke_width + 1):
+                        if dx == 0 and dy == 0:
+                            continue
+                        draw.text((dx, dy), text, font=font, fill=(*stroke_color, 255))
+
+            # 创建渐变色文字
+            # 1. 首先绘制一个白色的文字模板
+            temp_white = Image.new('L', (text_width, text_height), 0)
+            white_draw = ImageDraw.Draw(temp_white)
+            white_draw.text((0, 0), text, font=font, fill=255)
+
+            # 2. 创建渐变色背景
+            gradient = np.zeros((text_height, text_width, 3), dtype=np.uint8)
+
+            for y in range(text_height):
+                for x in range(text_width):
+                    # 计算渐变比例
+                    if gradient_type == "horizontal":
+                        ratio = x / text_width if text_width > 0 else 0
+                    elif gradient_type == "vertical":
+                        ratio = y / text_height if text_height > 0 else 0
+                    elif gradient_type == "diagonal":
+                        ratio = (x + y) / (text_width + text_height) if (text_width + text_height) > 0 else 0
+                    else:
+                        ratio = 0
+
+                    # 线性插值计算颜色
+                    r = int(color_start[0] + (color_end[0] - color_start[0]) * ratio)
+                    g = int(color_start[1] + (color_end[1] - color_start[1]) * ratio)
+                    b = int(color_start[2] + (color_end[2] - color_start[2]) * ratio)
+
+                    gradient[y, x] = [r, g, b]
+
+            # 3. 将渐变色应用到文字模板上
+            gradient_img = Image.fromarray(gradient, mode='RGB')
+            alpha = temp_white
+            gradient_with_alpha = Image.composite(gradient_img, Image.new('RGBA', gradient_img.size, (0, 0, 0, 0)), alpha)
+
+            # 4. 将渐变色文字绘制到最终图像上
+            img.paste(gradient_with_alpha, (0, 0), gradient_with_alpha.split()[-1])
+
+            # 转换为numpy数组
+            img_array = np.array(img)
+
+            # 转换为OpenCV格式（BGRA）
+            if len(img_array.shape) == 3 and img_array.shape[2] == 4:
+                img_array = cv2.cvtColor(img_array, cv2.COLOR_RGBA2BGRA)
+
+            Logger.info(f"渐变色文字图像创建成功: shape={img_array.shape}")
+            return img_array
+
+        except Exception as e:
+            Logger.error(f"创建渐变色文字图像失败: {e}")
+            import traceback
+            Logger.error(traceback.format_exc())
+            raise
+
+    @staticmethod
     def create_text_image(text: str, font_size: int, font_name: str = None,
                          text_color: tuple = (255, 255, 255),
                          bg_color: tuple = None,
@@ -883,12 +1039,10 @@ class VideoEffectsProcessor:
 
             # 预处理效果资源
             flower_img = None
+            flower_animation = None
             if flower_config and flower_config.get('text'):
-                # 获取文字颜色，支持多种格式
-                raw_text_color = flower_config.get('color', (255, 255, 255))
-                Logger.info(f"花字配置 - 原始颜色值: {raw_text_color}, 类型: {type(raw_text_color)}")
-                text_color = VideoEffectsProcessor.parse_color(raw_text_color)
-                Logger.info(f"花字文字颜色: {raw_text_color} -> {text_color}")
+                # 获取颜色模式
+                color_mode = flower_config.get('color_mode', '单色')
 
                 # 获取描边设置
                 stroke_enabled = flower_config.get('stroke_enabled', False)
@@ -898,16 +1052,53 @@ class VideoEffectsProcessor:
                 Logger.info(f"花字描边颜色: {raw_stroke_color} -> {stroke_color}")
                 stroke_width = flower_config.get('stroke_width', 2)
 
-                flower_img = VideoEffectsProcessor.create_text_image(
-                    flower_config['text'],
-                    flower_config['size'],
-                    flower_config['font'],
-                    text_color,
-                    None,  # 透明背景
-                    stroke_enabled,
-                    stroke_color,
-                    stroke_width
-                )
+                # 根据颜色模式创建花字图像
+                if color_mode == '渐变色':
+                    # 渐变色模式
+                    gradient_type = flower_config.get('gradient_type', '水平渐变')
+                    gradient_type_map = {
+                        '水平渐变': 'horizontal',
+                        '垂直渐变': 'vertical',
+                        '对角渐变': 'diagonal'
+                    }
+                    gradient_type_en = gradient_type_map.get(gradient_type, 'horizontal')
+
+                    raw_color_start = flower_config.get('color_start', (255, 0, 0))
+                    raw_color_end = flower_config.get('color_end', (0, 0, 255))
+                    color_start = VideoEffectsProcessor.parse_color(raw_color_start)
+                    color_end = VideoEffectsProcessor.parse_color(raw_color_end)
+
+                    Logger.info(f"创建渐变色花字: gradient_type={gradient_type_en}, color_start={color_start}, color_end={color_end}")
+
+                    flower_img = VideoEffectsProcessor.create_gradient_text_image(
+                        flower_config['text'],
+                        flower_config['size'],
+                        flower_config['font'],
+                        gradient_type_en,
+                        color_start,
+                        color_end,
+                        None,  # 透明背景
+                        stroke_enabled,
+                        stroke_color,
+                        stroke_width
+                    )
+                else:
+                    # 单色模式
+                    raw_text_color = flower_config.get('color', (255, 255, 255))
+                    Logger.info(f"花字配置 - 原始颜色值: {raw_text_color}, 类型: {type(raw_text_color)}")
+                    text_color = VideoEffectsProcessor.parse_color(raw_text_color)
+                    Logger.info(f"花字文字颜色: {raw_text_color} -> {text_color}")
+
+                    flower_img = VideoEffectsProcessor.create_text_image(
+                        flower_config['text'],
+                        flower_config['size'],
+                        flower_config['font'],
+                        text_color,
+                        None,  # 透明背景
+                        stroke_enabled,
+                        stroke_color,
+                        stroke_width
+                    )
 
                 if flower_img is not None:
                     Logger.info(f"花字图像创建成功: shape={flower_img.shape}, dtype={flower_img.dtype}")
@@ -917,7 +1108,7 @@ class VideoEffectsProcessor:
                         debug_dir = Path(output_path).parent / "debug"
                         debug_dir.mkdir(exist_ok=True)
                         debug_img_path = debug_dir / "flower_text_debug.png"
-                        
+
                         # 使用 PIL 保存以保留透明通道
                         if flower_img.shape[2] == 4:  # BGRA
                             # 转换为 RGBA
@@ -926,16 +1117,34 @@ class VideoEffectsProcessor:
                         else:  # BGR
                             flower_img_rgb = cv2.cvtColor(flower_img, cv2.COLOR_BGR2RGB)
                             pil_img = Image.fromarray(flower_img_rgb)
-                        
+
                         pil_img.save(debug_img_path)
                         Logger.info(f"花字调试图像已保存: {debug_img_path}")
                     except Exception as save_error:
                         Logger.warning(f"保存花字调试图像失败: {save_error}")
                         import traceback
                         Logger.error(traceback.format_exc())
+
+                    # 初始化动态效果
+                    animation_enabled = flower_config.get('animation_enabled', False)
+                    if animation_enabled:
+                        animation_type = flower_config.get('animation_type', '无效果')
+                        animation_type_map = {
+                            '无效果': 'none',
+                            '走马灯': 'marquee',
+                            '心动': 'heartbeat'
+                        }
+                        animation_type_en = animation_type_map.get(animation_type, 'none')
+
+                        if animation_type_en != 'none':
+                            from utils.text_animation import text_animation_factory
+                            flower_animation = text_animation_factory.create_animation(animation_type_en)
+                            if flower_animation:
+                                pass  # 动态效果已初始化
+                            else:
+                                Logger.warning(f"无法创建动态效果: {animation_type}")
                 else:
                     Logger.error("花字图像创建失败")
-
             overlay_img = None
             if image_config and image_config.get('path'):
                 # 获取任务目录用于保存处理后的图片
@@ -1037,24 +1246,58 @@ class VideoEffectsProcessor:
                 # 应用花字效果
                 if flower_img is not None and flower_start <= current_time <= flower_end:
                     try:
-                        fh, fw = flower_img.shape[:2]
+                        # 应用动态效果（如果启用）
+                        current_flower_img = flower_img
+                        if flower_animation:
+                            try:
+                                # 获取动画参数
+                                animation_speed = flower_config.get('animation_speed', 1.0)
+                                animation_amplitude = flower_config.get('animation_amplitude', 20.0)
+                                animation_direction = flower_config.get('animation_direction', 'left')
+
+                                # 计算花字显示的起始帧
+                                flower_start_frame = int(flower_start * fps)
+
+                                # 动效的 frame_index 应该从花字开始显示的帧开始计算
+                                animation_frame_index = frame_index - flower_start_frame
+
+                                # 应用动画效果（传递所有可能的参数，让每个动效自己选择需要的）
+                                current_flower_img = flower_animation.apply_animation(
+                                    flower_img,
+                                    animation_frame_index,
+                                    total_frames,
+                                    fps,
+                                    speed=animation_speed,
+                                    amplitude=animation_amplitude,
+                                    direction=animation_direction,
+                                    frequency=animation_speed,  # 使用 speed 作为 frequency
+                                    scale_min=0.9,
+                                    scale_max=1.1
+                                )
+                            except Exception as anim_error:
+                                Logger.warning(f"应用动态效果失败: {anim_error}")
+                                import traceback
+                                Logger.error(traceback.format_exc())
+                                current_flower_img = flower_img
+
+                        fh, fw = current_flower_img.shape[:2]
                         fx, fy = flower_config['x'], flower_config['y']
                         Logger.debug(f"应用花字: frame={frame_index}, time={current_time:.2f}s, pos=({fx},{fy}), size=({fw},{fh})")
 
                         if fx + fw <= width and fy + fh <= height:
                             # 处理透明背景
-                            if flower_img.shape[2] == 4:  # BGRA
-                                alpha = flower_img[:, :, 3] / 255.0
+                            if current_flower_img.shape[2] == 4:  # BGRA
+                                alpha = current_flower_img[:, :, 3] / 255.0
                                 alpha_mean = np.mean(alpha)
                                 Logger.debug(f"花字alpha混合: alpha_mean={alpha_mean:.3f}, alpha_range=[{alpha.min():.3f}, {alpha.max():.3f}]")
 
                                 for c in range(3):
                                     frame[fy:fy+fh, fx:fx+fw, c] = (
-                                        alpha * flower_img[:, :, c] +
+                                        alpha * current_flower_img[:, :, c] +
                                         (1 - alpha) * frame[fy:fy+fh, fx:fx+fw, c]
                                     )
                             else:
-                                frame[fy:fy+fh, fx:fx+fw] = flower_img
+                                frame[fy:fy+fh, fx:fx+fw] = current_flower_img
                         else:
                             Logger.warning(f"花字位置超出视频范围: ({fx},{fy})+({fw},{fh}) > ({width},{height})")
                     except Exception as e:
