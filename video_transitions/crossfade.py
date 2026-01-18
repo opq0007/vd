@@ -223,7 +223,7 @@ class CrossfadeTransition(BaseTransition):
             else:
                 ch2_shifted = ch2
             
-            # 混合通道
-            result[:, :, i] = cv2.addWeighted(ch1, 1 - progress, ch2_shifted, progress, 0)
+            # 使用 numpy 线性插值混合单通道图像（避免 cv2.addWeighted 对单通道的兼容性问题）
+            result[:, :, i] = (ch1 * (1 - progress) + ch2_shifted * progress).astype(np.uint8)
         
         return self.numpy_to_tensor(result)
