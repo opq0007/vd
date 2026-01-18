@@ -39,6 +39,9 @@ class TransitionModule:
         height: int = 640,
         # 任务目录配置（可选）
         job_dir: Optional[Path] = None,  # 可选的任务目录，如果提供则使用该目录
+        # 输出配置（可选）
+        output_dir: Optional[str] = None,  # 可选的输出目录（优先级高于 job_dir）
+        output_basename: Optional[str] = None,  # 可选的输出文件名前缀
         **kwargs
     ) -> Dict[str, Any]:
         """
@@ -52,6 +55,9 @@ class TransitionModule:
             fps: 帧率
             width: 输出宽度
             height: 输出高度
+            job_dir: 可选的任务目录（如果提供则使用该目录）
+            output_dir: 可选的输出目录（优先级高于 job_dir）
+            output_basename: 可选的输出文件名前缀
             **kwargs: 其他转场参数
 
         Returns:
@@ -65,18 +71,91 @@ class TransitionModule:
                 # 确保 job_dir 存在
                 job_dir = Path(job_dir)
                 job_dir.mkdir(parents=True, exist_ok=True)
+            
+            # 记录输入参数
+            Logger.info(f"转场参数: video1_path={video1_path}, video2_path={video2_path}, template_dir={kwargs.get('template_dir')}")
+            Logger.info(f"任务目录: {job_dir}")
 
             if FileUtils.is_url(video1_path):
                 video1_local = FileUtils.process_path_input(video1_path, job_dir)
             else:
                 video1_local = Path(video1_path).resolve()
+                Logger.info(f"video1 原始路径: {video1_path}, 解析后: {video1_local}, 存在: {video1_local.exists()}")
+                
+                # 如果文件不存在，尝试从模板目录查找
+                if not video1_local.exists():
+                    # 从 kwargs 中获取 template_dir
+                    template_dir_path = kwargs.get("template_dir")
+                    if template_dir_path:
+                        template_dir = Path(template_dir_path)
+                        template_file = template_dir / video1_path
+                        Logger.info(f"尝试从模板目录查找: {template_dir} / {video1_path} = {template_file}, 存在: {template_file.exists()}")
+                        if template_file.exists():
+                            video1_local = template_file.resolve()
+                            Logger.info(f"从模板目录找到文件: {video1_local}")
+                        else:
+                            Logger.warning(f"模板目录中未找到文件: {video1_path}")
+                    
+                    # 如果模板目录中也没有，尝试直接复制到任务目录
+                    if not video1_local.exists():
+                        try:
+                            video1_local = FileUtils.process_path_input(video1_path, job_dir)
+                            if video1_local and video1_local.exists():
+                                Logger.info(f"文件已复制到任务目录: {video1_local}")
+                            else:
+                                Logger.error(f"无法找到文件: {video1_path}")
+                        except Exception as e:
+                            Logger.warning(f"无法处理文件路径: {video1_path}, 错误: {e}")
+                
+                # 最终检查文件是否存在
+                if not video1_local.exists():
+                    raise ValueError(f"无法找到视频/图片文件: {video1_path}")
 
             if FileUtils.is_url(video2_path):
                 video2_local = FileUtils.process_path_input(video2_path, job_dir)
             else:
                 video2_local = Path(video2_path).resolve()
+                Logger.info(f"video2 原始路径: {video2_path}, 解析后: {video2_local}, 存在: {video2_local.exists()}")
+                
+                # 如果文件不存在，尝试从模板目录查找
+                if not video2_local.exists():
+                    # 从 kwargs 中获取 template_dir
+                    template_dir_path = kwargs.get("template_dir")
+                    if template_dir_path:
+                        template_dir = Path(template_dir_path)
+                        template_file = template_dir / video2_path
+                        Logger.info(f"尝试从模板目录查找: {template_dir} / {video2_path} = {template_file}, 存在: {template_file.exists()}")
+                        if template_file.exists():
+                            video2_local = template_file.resolve()
+                            Logger.info(f"从模板目录找到文件: {video2_local}")
+                        else:
+                            Logger.warning(f"模板目录中未找到文件: {video2_path}")
+                    
+                    # 如果模板目录中也没有，尝试直接复制到任务目录
+                    if not video2_local.exists():
+                        try:
+                            video2_local = FileUtils.process_path_input(video2_path, job_dir)
+                            if video2_local and video2_local.exists():
+                                Logger.info(f"文件已复制到任务目录: {video2_local}")
+                            else:
+                                Logger.error(f"无法找到文件: {video2_path}")
+                        except Exception as e:
+                            Logger.warning(f"无法处理文件路径: {video2_path}, 错误: {e}")
+                
+                # 最终检查文件是否存在
+                if not video2_local.exists():
+                    raise ValueError(f"无法找到视频/图片文件: {video2_path}")
 
             # 应用转场效果
+            # 过滤掉 template_dir 参数，避免传递给 processor
+            processor_kwargs = {k: v for k, v in kwargs.items() if k != 'template_dir'}
+            
+            # 确定输出目录和文件名前缀
+            final_output_dir = output_dir if output_dir else str(job_dir)
+            final_output_basename = output_basename if output_basename else f"{transition_name}_transition"
+            
+            Logger.info(f"输出配置: output_dir={final_output_dir}, output_basename={final_output_basename}")
+            
             output_path, status = await self.processor.process_transition(
                 str(video1_local),
                 str(video2_local),
@@ -85,7 +164,9 @@ class TransitionModule:
                 fps=fps,
                 width=width,
                 height=height,
-                **kwargs
+                output_dir=final_output_dir,
+                output_basename=final_output_basename,
+                **processor_kwargs
             )
 
             if output_path:

@@ -1043,6 +1043,14 @@ class VideoEffectsProcessor:
             if flower_config and flower_config.get('text'):
                 # 获取颜色模式
                 color_mode = flower_config.get('color_mode', '单色')
+                # 支持 color_mode 的中英文映射
+                color_mode_map = {
+                    '单色': '单色',
+                    'solid': '单色',
+                    '渐变色': '渐变色',
+                    'gradient': '渐变色'
+                }
+                color_mode_normalized = color_mode_map.get(color_mode.lower() if isinstance(color_mode, str) else color_mode, '单色')
 
                 # 获取描边设置
                 stroke_enabled = flower_config.get('stroke_enabled', False)
@@ -1053,15 +1061,20 @@ class VideoEffectsProcessor:
                 stroke_width = flower_config.get('stroke_width', 2)
 
                 # 根据颜色模式创建花字图像
-                if color_mode == '渐变色':
+                if color_mode_normalized == '渐变色':
                     # 渐变色模式
                     gradient_type = flower_config.get('gradient_type', '水平渐变')
+                    # 支持 gradient_type 的中英文映射
                     gradient_type_map = {
                         '水平渐变': 'horizontal',
+                        'horizontal': 'horizontal',
                         '垂直渐变': 'vertical',
-                        '对角渐变': 'diagonal'
+                        'vertical': 'vertical',
+                        '对角渐变': 'diagonal',
+                        'diagonal': 'diagonal'
                     }
-                    gradient_type_en = gradient_type_map.get(gradient_type, 'horizontal')
+                    gradient_type_lower = gradient_type.lower() if isinstance(gradient_type, str) else gradient_type
+                    gradient_type_en = gradient_type_map.get(gradient_type_lower, 'horizontal')
 
                     raw_color_start = flower_config.get('color_start', (255, 0, 0))
                     raw_color_end = flower_config.get('color_end', (0, 0, 255))
@@ -1129,12 +1142,17 @@ class VideoEffectsProcessor:
                     animation_enabled = flower_config.get('animation_enabled', False)
                     if animation_enabled:
                         animation_type = flower_config.get('animation_type', '无效果')
+                        # 支持 animation_type 的中英文映射
                         animation_type_map = {
                             '无效果': 'none',
+                            'none': 'none',
                             '走马灯': 'marquee',
-                            '心动': 'heartbeat'
+                            'marquee': 'marquee',
+                            '心动': 'heartbeat',
+                            'heartbeat': 'heartbeat'
                         }
-                        animation_type_en = animation_type_map.get(animation_type, 'none')
+                        animation_type_lower = animation_type.lower() if isinstance(animation_type, str) else animation_type
+                        animation_type_en = animation_type_map.get(animation_type_lower, 'none')
 
                         if animation_type_en != 'none':
                             from utils.text_animation import text_animation_factory

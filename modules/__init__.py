@@ -11,6 +11,10 @@ from .transition_module import TransitionModule, transition_module
 from .video_editor_module import VideoEditorModule, video_editor_module
 from .video_merge_module import VideoMergeModule, video_merge_module
 from .image_processing_module import ImageProcessingModule, image_processing_module
+from .template_manager import TemplateManager, template_manager
+from .parameter_resolver import ParameterResolver, parameter_resolver
+from .task_orchestrator import TaskOrchestrator, task_orchestrator
+from .task_handlers import TaskHandlers, task_handlers
 
 __all__ = [
     'WhisperService',
@@ -20,11 +24,19 @@ __all__ = [
     'VideoEditorModule',
     'VideoMergeModule',
     'ImageProcessingModule',
+    'TemplateManager',
+    'ParameterResolver',
+    'TaskOrchestrator',
+    'TaskHandlers',
     'whisper_service',
     'tts_onnx_module',
     'subtitle_module',
     'transition_module',
     'video_editor_module',
     'video_merge_module',
-    'image_processing_module'
+    'image_processing_module',
+    'template_manager',
+    'parameter_resolver',
+    'task_orchestrator',
+    'task_handlers'
 ]

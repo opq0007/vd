@@ -1493,6 +1493,7 @@ def register_routes(app) -> None:
     async def merge_videos(
         video_paths: str = Form(...),
         out_basename: str = Form(None),
+        delete_intermediate_videos: bool = Form(True),
         payload: Dict[str, Any] = Depends(verify_token)
     ) -> Dict[str, Any]:
         """
@@ -1501,6 +1502,7 @@ def register_routes(app) -> None:
         Args:
             video_paths: 视频文件路径列表，用换行符分隔
             out_basename: 输出文件名前缀
+            delete_intermediate_videos: 是否删除中间视频文件（默认为True）
             payload: 认证载荷
 
         Returns:
@@ -1512,7 +1514,8 @@ def register_routes(app) -> None:
             # 执行视频合并
             result = await video_merge_module.merge_videos(
                 video_paths=video_paths,
-                out_basename=out_basename
+                out_basename=out_basename,
+                delete_intermediate_videos=delete_intermediate_videos
             )
 
             return result

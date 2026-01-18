@@ -215,3 +215,6 @@ fonts/*.ttc
 fonts/*.otf
 fonts/*.woff
 fonts/*.woff2
+
+# 忽略模板目录下的视频文件
+templates/**/*.mp4

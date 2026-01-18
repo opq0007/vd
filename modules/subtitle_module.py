@@ -40,7 +40,7 @@ class SubtitleModule:
         word_timestamps: bool = False,
         burn_subtitles: str = "none",
         beam_size: int = 5,
-        subtitle_bottom_margin: int = 20,
+        subtitle_bottom_margin: int = 50,
         out_basename: Optional[str] = None,
         # 花字配置
         flower_config: Optional[Dict[str, Any]] = None,
@@ -51,7 +51,7 @@ class SubtitleModule:
         # 时长基准配置
         duration_reference: str = "video",  # "video" 或 "audio"，决定以哪个为准
         # 音频语速调整配置
-        adjust_audio_speed: bool = False,  # 是否自动调整音频语速
+        adjust_audio_speed: bool = True,  # 是否自动调整音频语速
         audio_speed_factor: float = 1.0,  # 音频语速调整倍数
         # 音频音量控制配置
         audio_volume: float = 1.0,  # 音频音量倍数（默认1.0，表示原音量）
@@ -60,11 +60,7 @@ class SubtitleModule:
         # LLM 字幕纠错配置
         enable_llm_correction: bool = False,  # 是否启用 LLM 字幕纠错
         reference_text: Optional[str] = None,  # 参考文本，用于字幕纠错
-        # Whisper 时间戳分段优化配置
-        vad_filter: bool = True,  # 启用 VAD 语音活动检测
-        condition_on_previous_text: bool = False,  # 不依赖前文，产生更自然的分段
-        temperature: float = 0.0,  # 温度参数，0 表示更保守
-        # 字幕显示参数（后处理）
+        # 字幕显示后处理配置
         max_chars_per_line: int = 20,  # 每行最大字符数
         max_lines_per_segment: int = 2,  # 每段最大行数
         # 任务目录配置（可选）
@@ -282,11 +278,7 @@ class SubtitleModule:
                     device=device,
                     beam_size=beam_size,
                     task="transcribe",
-                    word_timestamps=word_timestamps,
-                    # 基础参数
-                    vad_filter=vad_filter,
-                    condition_on_previous_text=condition_on_previous_text,
-                    temperature=temperature
+                    word_timestamps=word_timestamps
                 )
 
             # 生成字幕文件
@@ -335,13 +327,43 @@ class SubtitleModule:
                         import traceback
                         Logger.error(traceback.format_exc())
 
+                # 字幕显示后处理：智能分割过长的字幕段
+                if max_chars_per_line > 0 or max_lines_per_segment > 0:
+                    Logger.info("开始字幕显示后处理...")
+                    try:
+                        # 将 segments 转换为 SubtitleSegment 对象
+                        subtitle_segments = []
+                        for seg in segments:
+                            # 检查 seg 是字典还是对象
+                            if isinstance(seg, dict):
+                                subtitle_segments.append(
+                                    SubtitleSegment(start=seg['start'], end=seg['end'], text=seg.get('text', ''))
+                                )
+                            elif hasattr(seg, 'start') and hasattr(seg, 'end') and hasattr(seg, 'text'):
+                                # 已经是 SubtitleSegment 对象
+                                subtitle_segments.append(seg)
+                            else:
+                                Logger.warning(f"未知的 segment 格式: {type(seg)}")
+                        
+                        # 调用字幕显示后处理
+                        processed_segments = SubtitleGenerator.split_long_segments(
+                            subtitle_segments,
+                            max_chars_per_line=max_chars_per_line,
+                            max_lines_per_segment=max_lines_per_segment
+                        )
+                        
+                        # 保持 SubtitleSegment 对象格式
+                        segments = processed_segments
+                        
+                        Logger.info(f"字幕显示后处理完成: 原始 {len(subtitle_segments)} 段 → 处理后 {len(segments)} 段")
+                    except Exception as e:
+                        Logger.error(f"字幕显示后处理失败: {e}")
+                        import traceback
+                        Logger.error(traceback.format_exc())
+
                 # 生成字幕文件
                 srt_path = job_dir / f"{out_basename}.srt"
-                SubtitleGenerator.write_srt(
-                    segments, srt_path, bilingual=False,
-                    max_chars_per_line=max_chars_per_line,
-                    max_lines_per_segment=max_lines_per_segment
-                )
+                SubtitleGenerator.write_srt(segments, srt_path, bilingual=False)
 
                 # 生成双语字幕
                 if bilingual:
@@ -351,19 +373,13 @@ class SubtitleModule:
                         device=device,
                         beam_size=beam_size,
                         task="translate",
-                        word_timestamps=word_timestamps,
-                        # 基础参数
-                        vad_filter=vad_filter,
-                        condition_on_previous_text=condition_on_previous_text,
-                        temperature=temperature
+                        word_timestamps=word_timestamps
                     )
                     bilingual_srt_path = job_dir / f"{out_basename}_bilingual.srt"
                     SubtitleGenerator.write_srt(
                         segments, bilingual_srt_path,
                         bilingual=True,
-                        translated_segments=translated_segments,
-                        max_chars_per_line=max_chars_per_line,
-                        max_lines_per_segment=max_lines_per_segment
+                        translated_segments=translated_segments
                     )
 
             # 合并音视频（如果需要）
