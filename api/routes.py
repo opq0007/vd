@@ -13,6 +13,7 @@ from pydantic import BaseModel
 
 from config import config
 from api.auth import AuthService, verify_token
+from api.response_formatter import response_formatter
 from modules.whisper_service import whisper_service
 from modules.tts_onnx_module import tts_onnx_module
 from modules.subtitle_module import subtitle_module
@@ -58,16 +59,25 @@ def register_routes(app) -> None:
         Returns:
             Dict[str, Any]: 包含访问令牌的响应
         """
-        if AuthService.verify_user(request.username, request.password):
-            access_token = AuthService.create_access_token(
-                data={"sub": request.username}
-            )
-            return {
-                "access_token": access_token,
-                "token_type": "bearer"
-            }
-        else:
-            raise HTTPException(status_code=400, detail="用户名或密码错误")
+        try:
+            if AuthService.verify_user(request.username, request.password):
+                access_token = AuthService.create_access_token(
+                    data={"sub": request.username}
+                )
+                return response_formatter.success(
+                    data={
+                        "access_token": access_token,
+                        "token_type": "bearer"
+                    },
+                    message="登录成功"
+                )
+            else:
+                return response_formatter.error(
+                    message="用户名或密码错误",
+                    error_code="INVALID_CREDENTIALS"
+                )
+        except Exception as e:
+            return response_formatter.wrap_exception(e, "登录失败")
 
     # ==================== 模型信息 ====================
     @api_router.get("/model/info")
@@ -81,18 +91,34 @@ def register_routes(app) -> None:
         Returns:
             Dict[str, Any]: 模型信息
         """
-        return whisper_service.get_model_info()
+        try:
+            model_info = whisper_service.get_model_info()
+            return response_formatter.success(
+                data=model_info,
+                message="获取模型信息成功"
+            )
+        except Exception as e:
+            return response_formatter.wrap_exception(e, "获取模型信息失败")
 
     # ==================== 健康检查 ====================
     @api_router.get("/health")
-    async def health_check() -> Dict[str, str]:
+    async def health_check() -> Dict[str, Any]:
         """
         健康检查
 
         Returns:
-            Dict[str, str]: 健康状态
+            Dict[str, Any]: 健康状态
         """
-        return {"status": "healthy", "service": "whisper-api"}
+        try:
+            return response_formatter.success(
+                data={
+                    "status": "healthy",
+                    "service": "whisper-api"
+                },
+                message="服务正常"
+            )
+        except Exception as e:
+            return response_formatter.wrap_exception(e, "健康检查失败")
 
     # ==================== 语音转文字 ====================
     @api_router.post("/transcribe")
@@ -122,34 +148,40 @@ def register_routes(app) -> None:
         Returns:
             Dict[str, Any]: 转录结果
         """
-        from utils.file_utils import FileUtils
-        job_dir = FileUtils.create_job_dir()
-        audio_path = job_dir / audio.filename
+        try:
+            from utils.file_utils import FileUtils
+            job_dir = FileUtils.create_job_dir()
+            audio_path = job_dir / audio.filename
 
-        with open(audio_path, "wb") as f:
-            f.write(await audio.read())
+            with open(audio_path, "wb") as f:
+                f.write(await audio.read())
 
-        segments = await whisper_service.transcribe_advanced(
-            audio_path,
-            model_name=model_name,
-            device=device,
-            compute_type=compute_type,
-            beam_size=beam_size,
-            task=task,
-            word_timestamps=word_timestamps
-        )
+            segments = await whisper_service.transcribe_advanced(
+                audio_path,
+                model_name=model_name,
+                device=device,
+                compute_type=compute_type,
+                beam_size=beam_size,
+                task=task,
+                word_timestamps=word_timestamps
+            )
 
-        return {
-            "segments": [
-                {
-                    "start": seg.start,
-                    "end": seg.end,
-                    "text": seg.text,
-                    "words": seg.words if hasattr(seg, 'words') else []
-                }
-                for seg in segments
-            ]
-        }
+            return response_formatter.success(
+                data={
+                    "segments": [
+                        {
+                            "start": seg.start,
+                            "end": seg.end,
+                            "text": seg.text,
+                            "words": seg.words if hasattr(seg, 'words') else []
+                        }
+                        for seg in segments
+                    ]
+                },
+                message="语音转文字成功"
+            )
+        except Exception as e:
+            return response_formatter.wrap_exception(e, "语音转文字失败")
 
     # ==================== 语音合成 ====================
     @api_router.post("/tts/synthesize")
@@ -181,30 +213,43 @@ def register_routes(app) -> None:
         Returns:
             Dict[str, Any]: 合成结果
         """
-        from utils.file_utils import FileUtils
-        job_dir = FileUtils.create_job_dir()
+        try:
+            from utils.file_utils import FileUtils
+            job_dir = FileUtils.create_job_dir()
 
-        # 处理参考音频
-        prompt_wav_path = None
-        if prompt_wav:
-            prompt_wav_path = job_dir / prompt_wav.filename
-            with open(prompt_wav_path, "wb") as f:
-                f.write(await prompt_wav.read())
+            # 处理参考音频
+            prompt_wav_path = None
+            if prompt_wav:
+                prompt_wav_path = job_dir / prompt_wav.filename
+                with open(prompt_wav_path, "wb") as f:
+                    f.write(await prompt_wav.read())
 
-        # 执行语音合成
-        result = await tts_onnx_module.synthesize(
-            text=text,
-            prompt_wav=str(prompt_wav_path) if prompt_wav_path else None,
-            prompt_text=prompt_text,
-            feat_id=feat_id,
-            cfg_value=cfg_value,
-            min_len=min_len,
-            max_len=max_len,
-            timesteps=timesteps,
-            output_path=job_dir / "tts_output.wav"
-        )
+            # 执行语音合成
+            result = await tts_onnx_module.synthesize(
+                text=text,
+                prompt_wav=str(prompt_wav_path) if prompt_wav_path else None,
+                prompt_text=prompt_text,
+                feat_id=feat_id,
+                cfg_value=cfg_value,
+                min_len=min_len,
+                max_len=max_len,
+                timesteps=timesteps,
+                output_path=job_dir / "tts_output.wav"
+            )
 
-        return result
+            # 检查合成结果
+            if result.get("success", False):
+                return response_formatter.success(
+                    data=result,
+                    message="语音合成成功"
+                )
+            else:
+                return response_formatter.error(
+                    message=result.get("error", "语音合成失败"),
+                    error_code="TTS_SYNTHESIZE_FAILED"
+                )
+        except Exception as e:
+            return response_formatter.wrap_exception(e, "语音合成失败")
 
     @api_router.post("/tts/save_ref")
     async def tts_save_ref(
@@ -225,22 +270,35 @@ def register_routes(app) -> None:
         Returns:
             Dict[str, Any]: 保存结果
         """
-        from utils.file_utils import FileUtils
-        job_dir = FileUtils.create_job_dir()
+        try:
+            from utils.file_utils import FileUtils
+            job_dir = FileUtils.create_job_dir()
 
-        # 保存上传的音频
-        prompt_audio_path = job_dir / prompt_audio.filename
-        with open(prompt_audio_path, "wb") as f:
-            f.write(await prompt_audio.read())
+            # 保存上传的音频
+            prompt_audio_path = job_dir / prompt_audio.filename
+            with open(prompt_audio_path, "wb") as f:
+                f.write(await prompt_audio.read())
 
-        # 保存特征
-        result = await tts_onnx_module.save_ref_audio(
-            feat_id=feat_id,
-            prompt_audio_path=str(prompt_audio_path),
-            prompt_text=prompt_text
-        )
+            # 保存特征
+            result = await tts_onnx_module.save_ref_audio(
+                feat_id=feat_id,
+                prompt_audio_path=str(prompt_audio_path),
+                prompt_text=prompt_text
+            )
 
-        return result
+            # 检查结果
+            if result.get("success", False):
+                return response_formatter.success(
+                    data=result,
+                    message="保存参考音频特征成功"
+                )
+            else:
+                return response_formatter.error(
+                    message=result.get("error", "保存参考音频特征失败"),
+                    error_code="SAVE_REF_AUDIO_FAILED"
+                )
+        except Exception as e:
+            return response_formatter.wrap_exception(e, "保存参考音频特征失败")
 
     @api_router.get("/tts/info")
     async def tts_info(
@@ -255,7 +313,14 @@ def register_routes(app) -> None:
         Returns:
             Dict[str, Any]: 模型信息
         """
-        return tts_onnx_module.get_model_info()
+        try:
+            model_info = tts_onnx_module.get_model_info()
+            return response_formatter.success(
+                data=model_info,
+                message="获取 TTS 模型信息成功"
+            )
+        except Exception as e:
+            return response_formatter.wrap_exception(e, "获取 TTS 模型信息失败")
 
     @api_router.get("/tts/ref_features")
     async def tts_list_ref_features(
@@ -270,7 +335,14 @@ def register_routes(app) -> None:
         Returns:
             Dict[str, Any]: 特征列表
         """
-        return tts_onnx_module.list_ref_features()
+        try:
+            features = tts_onnx_module.list_ref_features()
+            return response_formatter.success(
+                data=features,
+                message="获取参考音频特征列表成功"
+            )
+        except Exception as e:
+            return response_formatter.wrap_exception(e, "获取参考音频特征列表失败")
 
     # ==================== 字幕生成 ====================
     @api_router.post("/subtitle/generate")
@@ -480,9 +552,9 @@ def register_routes(app) -> None:
         Returns:
             Dict[str, Any]: 包含文件路径的响应
         """
-        from utils.file_utils import FileUtils
-
         try:
+            from utils.file_utils import FileUtils
+
             # 确保上传目录存在
             upload_dir = Path(config.UPLOAD_FOLDER)
             upload_dir.mkdir(parents=True, exist_ok=True)
@@ -490,7 +562,10 @@ def register_routes(app) -> None:
             # 生成安全的文件名
             filename = file.filename
             if not filename:
-                raise HTTPException(status_code=400, detail="文件名不能为空")
+                return response_formatter.error(
+                    message="文件名不能为空",
+                    error_code="INVALID_FILENAME"
+                )
 
             # 避免文件名冲突
             file_path = upload_dir / filename
@@ -506,17 +581,18 @@ def register_routes(app) -> None:
 
             Logger.info(f"文件上传成功: {file_path}")
 
-            return {
-                "success": True,
-                "filename": file_path.name,
-                "filepath": str(file_path.absolute()),
-                "size": file_path.stat().st_size,
-                "message": "文件上传成功"
-            }
+            return response_formatter.success(
+                data={
+                    "filename": file_path.name,
+                    "filepath": str(file_path.absolute()),
+                    "size": file_path.stat().st_size
+                },
+                message="文件上传成功"
+            )
 
         except Exception as e:
             Logger.error(f"文件上传失败: {e}")
-            raise HTTPException(status_code=500, detail=f"文件上传失败: {str(e)}")
+            return response_formatter.wrap_exception(e, "文件上传失败")
 
     # ==================== 视频转场 ====================
     @api_router.post("/transition/apply")
@@ -546,30 +622,43 @@ def register_routes(app) -> None:
         Returns:
             Dict[str, Any]: 转场结果
         """
-        from utils.file_utils import FileUtils
-        job_dir = FileUtils.create_job_dir()
+        try:
+            from utils.file_utils import FileUtils
+            job_dir = FileUtils.create_job_dir()
 
-        video1_path = job_dir / video1.filename
-        video2_path = job_dir / video2.filename
+            video1_path = job_dir / video1.filename
+            video2_path = job_dir / video2.filename
 
-        with open(video1_path, "wb") as f:
-            f.write(await video1.read())
+            with open(video1_path, "wb") as f:
+                f.write(await video1.read())
 
-        with open(video2_path, "wb") as f:
-            f.write(await video2.read())
+            with open(video2_path, "wb") as f:
+                f.write(await video2.read())
 
-        result = await transition_module.apply_transition(
-            video1_path=str(video1_path),
-            video2_path=str(video2_path),
-            transition_name=transition_name,
-            total_frames=total_frames,
-            fps=fps,
-            width=width,
-            height=height,
-            job_dir=job_dir  # 传递 job_dir，确保在同一个目录下处理
-        )
+            result = await transition_module.apply_transition(
+                video1_path=str(video1_path),
+                video2_path=str(video2_path),
+                transition_name=transition_name,
+                total_frames=total_frames,
+                fps=fps,
+                width=width,
+                height=height,
+                job_dir=job_dir  # 传递 job_dir，确保在同一个目录下处理
+            )
 
-        return result
+            # 检查结果
+            if result.get("success", False):
+                return response_formatter.success(
+                    data=result,
+                    message="转场效果应用成功"
+                )
+            else:
+                return response_formatter.error(
+                    message=result.get("error", "转场效果应用失败"),
+                    error_code="TRANSITION_APPLY_FAILED"
+                )
+        except Exception as e:
+            return response_formatter.wrap_exception(e, "转场效果应用失败")
 
     @api_router.get("/transition/list")
     async def list_transitions(
@@ -584,9 +673,14 @@ def register_routes(app) -> None:
         Returns:
             Dict[str, Any]: 转场效果列表
         """
-        return {
-            "transitions": transition_module.get_available_transitions()
-        }
+        try:
+            transitions = transition_module.get_available_transitions()
+            return response_formatter.success(
+                data={"transitions": transitions},
+                message="获取转场效果列表成功"
+            )
+        except Exception as e:
+            return response_formatter.wrap_exception(e, "获取转场效果列表失败")
 
     @api_router.get("/transition/params/{transition_name}")
     async def get_transition_params(
@@ -603,9 +697,14 @@ def register_routes(app) -> None:
         Returns:
             Dict[str, Any]: 参数配置
         """
-        return {
-            "params": transition_module.get_transition_params(transition_name)
-        }
+        try:
+            params = transition_module.get_transition_params(transition_name)
+            return response_formatter.success(
+                data={"params": params},
+                message="获取转场参数配置成功"
+            )
+        except Exception as e:
+            return response_formatter.wrap_exception(e, "获取转场参数配置失败")
 
     # ==================== 视频编辑 ====================
     @api_router.post("/video_editor/apply_effects")
@@ -745,115 +844,128 @@ def register_routes(app) -> None:
         Returns:
             Dict[str, Any]: 视频编辑结果
         """
-        from utils.file_utils import FileUtils
-        job_dir = FileUtils.create_job_dir()
+        try:
+            from utils.file_utils import FileUtils
+            job_dir = FileUtils.create_job_dir()
 
-        # 处理上传文件
-        video_file_path = None
-        audio_file_path = None
-        if video_file:
-            video_file_path = job_dir / video_file.filename
-            with open(video_file_path, "wb") as f:
-                f.write(await video_file.read())
-        if audio_file:
-            audio_file_path = job_dir / audio_file.filename
-            with open(audio_file_path, "wb") as f:
-                f.write(await audio_file.read())
+            # 处理上传文件
+            video_file_path = None
+            audio_file_path = None
+            if video_file:
+                video_file_path = job_dir / video_file.filename
+                with open(video_file_path, "wb") as f:
+                    f.write(await video_file.read())
+            if audio_file:
+                audio_file_path = job_dir / audio_file.filename
+                with open(audio_file_path, "wb") as f:
+                    f.write(await audio_file.read())
 
-        # 准备花字配置
-        flower_config = None
-        if flower_text and flower_text.strip():
-            flower_config = {
-                'text': flower_text,
-                'font': flower_font,
-                'size': flower_size,
-                'color_mode': flower_color_mode,
-                'color': flower_color,
-                'gradient_type': flower_gradient_type,
-                'color_start': flower_color_start,
-                'color_end': flower_color_end,
-                'x': flower_x,
-                'y': flower_y,
-                'timing_type': flower_timing_type,
-                'start_frame': flower_start_frame,
-                'end_frame': flower_end_frame,
-                'start_time': flower_start_time,
-                'end_time': flower_end_time,
-                'stroke_enabled': flower_stroke_enabled,
-                'stroke_color': flower_stroke_color,
-                'stroke_width': flower_stroke_width,
-                'animation_enabled': flower_animation_enabled,
-                'animation_type': flower_animation_type,
-                'animation_speed': flower_animation_speed,
-                'animation_amplitude': flower_animation_amplitude,
-                'animation_direction': flower_animation_direction
-            }
+            # 准备花字配置
+            flower_config = None
+            if flower_text and flower_text.strip():
+                flower_config = {
+                    'text': flower_text,
+                    'font': flower_font,
+                    'size': flower_size,
+                    'color_mode': flower_color_mode,
+                    'color': flower_color,
+                    'gradient_type': flower_gradient_type,
+                    'color_start': flower_color_start,
+                    'color_end': flower_color_end,
+                    'x': flower_x,
+                    'y': flower_y,
+                    'timing_type': flower_timing_type,
+                    'start_frame': flower_start_frame,
+                    'end_frame': flower_end_frame,
+                    'start_time': flower_start_time,
+                    'end_time': flower_end_time,
+                    'stroke_enabled': flower_stroke_enabled,
+                    'stroke_color': flower_stroke_color,
+                    'stroke_width': flower_stroke_width,
+                    'animation_enabled': flower_animation_enabled,
+                    'animation_type': flower_animation_type,
+                    'animation_speed': flower_animation_speed,
+                    'animation_amplitude': flower_animation_amplitude,
+                    'animation_direction': flower_animation_direction
+                }
 
-        # 准备插图配置
-        image_config = None
-        if image_path and image_path.strip():
-            image_config = {
-                'path': image_path,
-                'x': image_x,
-                'y': image_y,
-                'width': image_width,
-                'height': image_height,
-                'remove_bg': image_remove_bg,
-                'timing_type': image_timing_type,
-                'start_frame': image_start_frame,
-                'end_frame': image_end_frame,
-                'start_time': image_start_time,
-                'end_time': image_end_time
-            }
+            # 准备插图配置
+            image_config = None
+            if image_path and image_path.strip():
+                image_config = {
+                    'path': image_path,
+                    'x': image_x,
+                    'y': image_y,
+                    'width': image_width,
+                    'height': image_height,
+                    'remove_bg': image_remove_bg,
+                    'timing_type': image_timing_type,
+                    'start_frame': image_start_frame,
+                    'end_frame': image_end_frame,
+                    'start_time': image_start_time,
+                    'end_time': image_end_time
+                }
 
-        # 准备插视频配置
-        video_config = None
-        if video_path_to_insert and video_path_to_insert.strip():
-            video_config = {
-                'path': video_path_to_insert,
-                'x': video_x,
-                'y': video_y,
-                'width': video_width,
-                'height': video_height,
-                'timing_type': video_timing_type,
-                'start_frame': video_start_frame,
-                'end_frame': video_end_frame,
-                'start_time': video_start_time,
-                'end_time': video_end_time
-            }
+            # 准备插视频配置
+            video_config = None
+            if video_path_to_insert and video_path_to_insert.strip():
+                video_config = {
+                    'path': video_path_to_insert,
+                    'x': video_x,
+                    'y': video_y,
+                    'width': video_width,
+                    'height': video_height,
+                    'timing_type': video_timing_type,
+                    'start_frame': video_start_frame,
+                    'end_frame': video_end_frame,
+                    'start_time': video_start_time,
+                    'end_time': video_end_time
+                }
 
-        # 准备水印配置
-        watermark_config = None
-        if watermark_text and watermark_text.strip():
-            watermark_config = {
-                'text': watermark_text,
-                'font': watermark_font,
-                'size': watermark_size,
-                'color': watermark_color,
-                'timing_type': watermark_timing_type,
-                'start_frame': watermark_start_frame,
-                'end_frame': watermark_end_frame,
-                'start_time': watermark_start_time,
-                'end_time': watermark_end_time,
-                'style': watermark_style
-            }
+            # 准备水印配置
+            watermark_config = None
+            if watermark_text and watermark_text.strip():
+                watermark_config = {
+                    'text': watermark_text,
+                    'font': watermark_font,
+                    'size': watermark_size,
+                    'color': watermark_color,
+                    'timing_type': watermark_timing_type,
+                    'start_frame': watermark_start_frame,
+                    'end_frame': watermark_end_frame,
+                    'start_time': watermark_start_time,
+                    'end_time': watermark_end_time,
+                    'style': watermark_style
+                }
 
-        # 执行视频效果处理
-        result = await video_editor_module.apply_video_effects(
-            input_type=input_type,
-            video_file=str(video_file_path) if video_file_path else None,
-            video_path=video_path,
-            audio_file=str(audio_file_path) if audio_file_path else None,
-            audio_path=audio_path,
-            flower_config=flower_config,
-            image_config=image_config,
-            video_config=video_config,
-            watermark_config=watermark_config,
-            out_basename=out_basename,
-            job_dir=job_dir  # 传递 job_dir，确保在同一个目录下处理
-        )
+            # 执行视频效果处理
+            result = await video_editor_module.apply_video_effects(
+                input_type=input_type,
+                video_file=str(video_file_path) if video_file_path else None,
+                video_path=video_path,
+                audio_file=str(audio_file_path) if audio_file_path else None,
+                audio_path=audio_path,
+                flower_config=flower_config,
+                image_config=image_config,
+                video_config=video_config,
+                watermark_config=watermark_config,
+                out_basename=out_basename,
+                job_dir=job_dir  # 传递 job_dir，确保在同一个目录下处理
+            )
 
-        return result
+            # 检查结果
+            if result.get("success", False):
+                return response_formatter.success(
+                    data=result,
+                    message="视频效果应用成功"
+                )
+            else:
+                return response_formatter.error(
+                    message=result.get("error", "视频效果应用失败"),
+                    error_code="VIDEO_EFFECTS_APPLY_FAILED"
+                )
+        except Exception as e:
+            return response_formatter.wrap_exception(e, "视频效果应用失败")
 
     @api_router.get("/video_editor/effects")
     async def get_available_effects(
@@ -868,7 +980,14 @@ def register_routes(app) -> None:
         Returns:
             Dict[str, Any]: 视频效果列表
         """
-        return video_editor_module.get_available_effects()
+        try:
+            effects = video_editor_module.get_available_effects()
+            return response_formatter.success(
+                data=effects,
+                message="获取视频效果列表成功"
+            )
+        except Exception as e:
+            return response_formatter.wrap_exception(e, "获取视频效果列表失败")
 
     @api_router.post("/video_editor/watermark")
     async def add_watermark(
@@ -887,37 +1006,50 @@ def register_routes(app) -> None:
         Returns:
             Dict[str, Any]: 添加水印结果
         """
-        from utils.file_utils import FileUtils
-        job_dir = FileUtils.create_job_dir()
-        video_path = job_dir / video.filename
+        try:
+            from utils.file_utils import FileUtils
+            job_dir = FileUtils.create_job_dir()
+            video_path = job_dir / video.filename
 
-        with open(video_path, "wb") as f:
-            f.write(await video.read())
+            with open(video_path, "wb") as f:
+                f.write(await video.read())
 
-        # 构建水印配置
-        watermark_config = None
-        if watermark_text and watermark_text.strip():
-            watermark_config = {
-                'text': watermark_text,
-                'font': 'Arial',
-                'size': 20,
-                'color': '#FFFFFF',
-                'timing_type': '时间戳范围',
-                'start_time': '00:00:00',
-                'end_time': '99:59:59',
-                'style': '半透明浮动'
-            }
+            # 构建水印配置
+            watermark_config = None
+            if watermark_text and watermark_text.strip():
+                watermark_config = {
+                    'text': watermark_text,
+                    'font': 'Arial',
+                    'size': 20,
+                    'color': '#FFFFFF',
+                    'timing_type': '时间戳范围',
+                    'start_time': '00:00:00',
+                    'end_time': '99:59:59',
+                    'style': '半透明浮动'
+                }
 
-        # 直接调用 apply_video_effects
-        result = await video_editor_module.apply_video_effects(
-            input_type="upload",
-            video_file=str(video_path),
-            watermark_config=watermark_config,
-            out_basename="watermark",
-            job_dir=job_dir
-        )
+            # 使用 path 模式，避免重复复制文件
+            result = await video_editor_module.apply_video_effects(
+                input_type="path",
+                video_path=str(video_path),
+                watermark_config=watermark_config,
+                out_basename="watermark",
+                job_dir=job_dir
+            )
 
-        return result
+            # 检查结果
+            if result.get("success", False):
+                return response_formatter.success(
+                    data=result,
+                    message="水印添加成功"
+                )
+            else:
+                return response_formatter.error(
+                    message=result.get("error", "水印添加失败"),
+                    error_code="WATERMARK_ADD_FAILED"
+                )
+        except Exception as e:
+            return response_formatter.wrap_exception(e, "水印添加失败")
 
     # ==================== 图像处理 ====================
     @api_router.post("/image/remove_background")
@@ -939,30 +1071,49 @@ def register_routes(app) -> None:
         Returns:
             Dict[str, Any]: 去背景结果
         """
-        from utils.file_utils import FileUtils
-        job_dir = FileUtils.create_job_dir()
+        try:
+            from utils.file_utils import FileUtils
+            job_dir = FileUtils.create_job_dir()
 
-        actual_image_path = None
+            actual_image_path = None
 
-        if input_type == "upload":
-            if not image:
-                raise HTTPException(status_code=400, detail="请上传图片文件")
-            image_file_path = job_dir / image.filename
-            with open(image_file_path, "wb") as f:
-                f.write(await image.read())
-            actual_image_path = str(image_file_path)
-        else:  # path
-            if not image_path or not image_path.strip():
-                raise HTTPException(status_code=400, detail="请提供图片文件路径")
-            actual_image_path = image_path
+            if input_type == "upload":
+                if not image:
+                    return response_formatter.error(
+                        message="请上传图片文件",
+                        error_code="NO_IMAGE_UPLOADED"
+                    )
+                image_file_path = job_dir / image.filename
+                with open(image_file_path, "wb") as f:
+                    f.write(await image.read())
+                actual_image_path = str(image_file_path)
+            else:  # path
+                if not image_path or not image_path.strip():
+                    return response_formatter.error(
+                        message="请提供图片文件路径",
+                        error_code="NO_IMAGE_PATH"
+                    )
+                actual_image_path = image_path
 
-        result = await image_processing_module.remove_background(
-            image_path=actual_image_path,
-            input_type=input_type,
-            job_dir=job_dir
-        )
+            result = await image_processing_module.remove_background(
+                image_path=actual_image_path,
+                input_type=input_type,
+                job_dir=job_dir
+            )
 
-        return result
+            # 检查结果
+            if result.get("success", False):
+                return response_formatter.success(
+                    data=result,
+                    message="去除图片背景成功"
+                )
+            else:
+                return response_formatter.error(
+                    message=result.get("error", "去除图片背景失败"),
+                    error_code="REMOVE_BACKGROUND_FAILED"
+                )
+        except Exception as e:
+            return response_formatter.wrap_exception(e, "去除图片背景失败")
 
     @api_router.post("/image/blend")
     async def blend_images(
@@ -999,51 +1150,70 @@ def register_routes(app) -> None:
         Returns:
             Dict[str, Any]: 混合结果
         """
-        from utils.file_utils import FileUtils
-        job_dir = FileUtils.create_job_dir()
+        try:
+            from utils.file_utils import FileUtils
+            job_dir = FileUtils.create_job_dir()
 
-        actual_base_path = None
-        actual_overlay_path = None
+            actual_base_path = None
+            actual_overlay_path = None
 
-        if input_type == "upload":
-            if not base_image or not overlay_image:
-                raise HTTPException(status_code=400, detail="请上传两张图片文件")
-            
-            base_image_file_path = job_dir / base_image.filename
-            overlay_image_file_path = job_dir / overlay_image.filename
+            if input_type == "upload":
+                if not base_image or not overlay_image:
+                    return response_formatter.error(
+                        message="请上传两张图片文件",
+                        error_code="NO_IMAGES_UPLOADED"
+                    )
 
-            with open(base_image_file_path, "wb") as f:
-                f.write(await base_image.read())
+                base_image_file_path = job_dir / base_image.filename
+                overlay_image_file_path = job_dir / overlay_image.filename
 
-            with open(overlay_image_file_path, "wb") as f:
-                f.write(await overlay_image.read())
+                with open(base_image_file_path, "wb") as f:
+                    f.write(await base_image.read())
 
-            actual_base_path = str(base_image_file_path)
-            actual_overlay_path = str(overlay_image_file_path)
-        else:  # path
-            if not base_image_path or not base_image_path.strip() or not overlay_image_path or not overlay_image_path.strip():
-                raise HTTPException(status_code=400, detail="请提供两张图片的文件路径")
-            actual_base_path = base_image_path
-            actual_overlay_path = overlay_image_path
+                with open(overlay_image_file_path, "wb") as f:
+                    f.write(await overlay_image.read())
 
-        # 处理宽高参数（0表示不指定）
-        width_param = width if width > 0 else None
-        height_param = height if height > 0 else None
+                actual_base_path = str(base_image_file_path)
+                actual_overlay_path = str(overlay_image_file_path)
+            else:  # path
+                if not base_image_path or not base_image_path.strip() or not overlay_image_path or not overlay_image_path.strip():
+                    return response_formatter.error(
+                        message="请提供两张图片的文件路径",
+                        error_code="NO_IMAGE_PATHS"
+                    )
+                actual_base_path = base_image_path
+                actual_overlay_path = overlay_image_path
 
-        result = await image_processing_module.blend_images(
-            base_image_path=actual_base_path,
-            overlay_image_path=actual_overlay_path,
-            input_type=input_type,
-            position_x=position_x,
-            position_y=position_y,
-            scale=scale,
-            width=width_param,
-            height=height_param,
-            remove_bg=remove_bg,
-            job_dir=job_dir
-        )
+            # 处理宽高参数（0表示不指定）
+            width_param = width if width > 0 else None
+            height_param = height if height > 0 else None
 
-        return result
+            result = await image_processing_module.blend_images(
+                base_image_path=actual_base_path,
+                overlay_image_path=actual_overlay_path,
+                input_type=input_type,
+                position_x=position_x,
+                position_y=position_y,
+                scale=scale,
+                width=width_param,
+                height=height_param,
+                remove_bg=remove_bg,
+                job_dir=job_dir
+            )
+
+            # 检查结果
+            if result.get("success", False):
+                return response_formatter.success(
+                    data=result,
+                    message="图片混合成功"
+                )
+            else:
+                return response_formatter.error(
+                    message=result.get("error", "图片混合失败"),
+                    error_code="BLEND_IMAGES_FAILED"
+                )
+        except Exception as e:
+            return response_formatter.wrap_exception(e, "图片混合失败")
 
     @api_router.get("/image/model_info")
     async def get_image_model_info(
@@ -1058,7 +1228,14 @@ def register_routes(app) -> None:
         Returns:
             Dict[str, Any]: 模型信息
         """
-        return await image_processing_module.get_model_info()
+        try:
+            model_info = await image_processing_module.get_model_info()
+            return response_formatter.success(
+                data=model_info,
+                message="获取图像处理模型信息成功"
+            )
+        except Exception as e:
+            return response_formatter.wrap_exception(e, "获取图像处理模型信息失败")
 
     # ==================== 视频合并 ====================
     @api_router.post("/video_merge/merge")
@@ -1080,9 +1257,9 @@ def register_routes(app) -> None:
         Returns:
             Dict[str, Any]: 合并结果
         """
-        from modules.video_merge_module import video_merge_module
-
         try:
+            from modules.video_merge_module import video_merge_module
+
             # 执行视频合并
             result = await video_merge_module.merge_videos(
                 video_paths=video_paths,
@@ -1090,13 +1267,23 @@ def register_routes(app) -> None:
                 delete_intermediate_videos=delete_intermediate_videos
             )
 
-            return result
+            # 检查结果
+            if result.get("success", False):
+                return response_formatter.success(
+                    data=result,
+                    message="视频合并成功"
+                )
+            else:
+                return response_formatter.error(
+                    message=result.get("error", "视频合并失败"),
+                    error_code="MERGE_VIDEOS_FAILED"
+                )
 
         except Exception as e:
             Logger.error(f"视频合并失败: {e}")
             import traceback
             Logger.error(traceback.format_exc())
-            raise HTTPException(status_code=500, detail=f"视频合并失败: {str(e)}")
+            return response_formatter.wrap_exception(e, "视频合并失败")
 
     # ==================== 一站式音视频合成+字幕生成+LLM纠错 ====================
     @api_router.post("/video/complete_process")
@@ -1159,10 +1346,16 @@ def register_routes(app) -> None:
             audio_file = Path(audio_path)
 
             if not video_file.exists():
-                raise HTTPException(status_code=404, detail=f"视频文件不存在: {video_path}")
+                return response_formatter.error(
+                    message=f"视频文件不存在: {video_path}",
+                    error_code="VIDEO_FILE_NOT_FOUND"
+                )
 
             if not audio_file.exists():
-                raise HTTPException(status_code=404, detail=f"音频文件不存在: {audio_path}")
+                return response_formatter.error(
+                    message=f"音频文件不存在: {audio_path}",
+                    error_code="AUDIO_FILE_NOT_FOUND"
+                )
 
             Logger.info(f"开始一站式处理: 视频={video_path}, 音频={audio_path}")
 
@@ -1197,15 +1390,23 @@ def register_routes(app) -> None:
 
             Logger.info(f"一站式处理完成: {result.get('out_basename', 'unknown')}")
 
-            return result
+            # 检查结果
+            if result.get("success", False):
+                return response_formatter.success(
+                    data=result,
+                    message="一站式音视频处理成功"
+                )
+            else:
+                return response_formatter.error(
+                    message=result.get("error", "一站式音视频处理失败"),
+                    error_code="COMPLETE_PROCESS_FAILED"
+                )
 
-        except HTTPException:
-            raise
         except Exception as e:
             Logger.error(f"一站式处理失败: {e}")
             import traceback
             Logger.error(traceback.format_exc())
-            raise HTTPException(status_code=500, detail=f"处理失败: {str(e)}")
+            return response_formatter.wrap_exception(e, "一站式音视频处理失败")
 
     @api_router.post("/video/tts_subtitle_video")
     async def tts_subtitle_video_process(
@@ -1272,25 +1473,28 @@ def register_routes(app) -> None:
         """
         try:
             from utils.file_utils import FileUtils
-            
+
             # 验证视频文件路径
             video_file = Path(video_path)
             if not video_file.exists():
-                raise HTTPException(status_code=404, detail=f"视频文件不存在: {video_path}")
+                return response_formatter.error(
+                    message=f"视频文件不存在: {video_path}",
+                    error_code="VIDEO_FILE_NOT_FOUND"
+                )
 
             Logger.info(f"开始TTS+字幕+视频合成处理: 视频={video_path}, 文本长度={len(text_content)}, 特征ID={feat_id}")
 
             # 创建任务目录
             job_dir = FileUtils.create_job_dir()
-            
+
             # 生成输出文件名
             if out_basename is None:
                 out_basename = f"tts_video_{FileUtils.generate_job_id()}"
-            
+
             # 1. 文本转语音（TTS）
             Logger.info("步骤1: 开始文本转语音...")
             audio_output_path = job_dir / f"{out_basename}_audio.wav"
-            
+
             tts_result = await tts_onnx_module.synthesize(
                 text=text_content,
                 prompt_wav=None,
@@ -1302,10 +1506,13 @@ def register_routes(app) -> None:
                 timesteps=timesteps,
                 output_path=audio_output_path
             )
-            
+
             if not tts_result["success"]:
-                raise HTTPException(status_code=500, detail=f"TTS合成失败: {tts_result.get('error', '未知错误')}")
-            
+                return response_formatter.error(
+                    message=f"TTS合成失败: {tts_result.get('error', '未知错误')}",
+                    error_code="TTS_SYNTHESIZE_FAILED"
+                )
+
             audio_file = tts_result["output_path"]
             Logger.info(f"TTS合成成功: {audio_file}, 时长: {tts_result.get('duration', 0):.2f}s")
 
@@ -1339,34 +1546,43 @@ def register_routes(app) -> None:
                 max_lines_per_segment=max_lines_per_segment,
                 job_dir=job_dir  # 传递 job_dir，确保在同一个目录下处理
             )
-            
+
             if not subtitle_result.get("success", False):
-                raise HTTPException(status_code=500, detail=f"字幕生成失败: {subtitle_result.get('error', '未知错误')}")
-            
+                return response_formatter.error(
+                    message=f"字幕生成失败: {subtitle_result.get('error', '未知错误')}",
+                    error_code="SUBTITLE_GENERATE_FAILED"
+                )
+
             subtitle_file = subtitle_result.get("subtitle_path")
             temp_video = subtitle_result.get("video_with_subtitle_path")
-            
+
             if not subtitle_file:
-                raise HTTPException(status_code=500, detail="字幕生成失败：未找到字幕文件")
-            
+                return response_formatter.error(
+                    message="字幕生成失败：未找到字幕文件",
+                    error_code="SUBTITLE_FILE_NOT_FOUND"
+                )
+
             Logger.info(f"字幕生成成功: {subtitle_file}, 临时视频: {temp_video}")
 
             # 3. 音视频合成（带字幕）
             Logger.info("步骤3: 开始音视频合成...")
-            
+
             # 如果需要烧录字幕，重新处理
             if burn_subtitles == "hard":
                 Logger.info("烧录字幕到视频...")
                 output_video_path = job_dir / f"{out_basename}_final.mp4"
-                
+
                 # 检查临时视频文件是否存在
                 if not temp_video or not Path(temp_video).exists():
                     Logger.warning(f"临时视频文件不存在: {temp_video}，使用原始视频")
                     temp_video = str(video_file)
-                
+
                 if not Path(temp_video).exists():
-                    raise HTTPException(status_code=500, detail=f"视频文件不存在: {temp_video}")
-                
+                    return response_formatter.error(
+                        message=f"视频文件不存在: {temp_video}",
+                        error_code="VIDEO_FILE_NOT_FOUND"
+                    )
+
                 # 烧录字幕
                 try:
                     MediaProcessor.burn_hardsub(
@@ -1377,33 +1593,39 @@ def register_routes(app) -> None:
                     output_video = str(output_video_path)
                     Logger.info(f"字幕烧录成功: {output_video}")
                 except Exception as e:
-                    raise HTTPException(status_code=500, detail=f"字幕烧录失败: {str(e)}")
+                    return response_formatter.error(
+                        message=f"字幕烧录失败: {str(e)}",
+                        error_code="BURN_SUBTITLE_FAILED"
+                    )
             else:
                 # 不烧录字幕，直接使用合成的视频
                 if not temp_video or not Path(temp_video).exists():
-                    raise HTTPException(status_code=500, detail="音视频合成失败：未找到输出视频文件")
+                    return response_formatter.error(
+                        message="音视频合成失败：未找到输出视频文件",
+                        error_code="OUTPUT_VIDEO_NOT_FOUND"
+                    )
                 output_video = temp_video
 
             Logger.info(f"TTS+字幕+视频合成处理完成")
 
             # 返回所有生成的文件路径
-            return {
-                "success": True,
-                "audio_file": str(audio_file),
-                "subtitle_file": str(subtitle_file),
-                "output_video": str(output_video),
-                "out_basename": out_basename,
-                "duration": tts_result.get("duration", 0),
-                "sample_rate": tts_result.get("sample_rate", 0)
-            }
+            return response_formatter.success(
+                data={
+                    "audio_file": str(audio_file),
+                    "subtitle_file": str(subtitle_file),
+                    "output_video": str(output_video),
+                    "out_basename": out_basename,
+                    "duration": tts_result.get("duration", 0),
+                    "sample_rate": tts_result.get("sample_rate", 0)
+                },
+                message="TTS+字幕+视频合成处理成功"
+            )
 
-        except HTTPException:
-            raise
         except Exception as e:
             Logger.error(f"TTS+字幕+视频合成处理失败: {e}")
             import traceback
             Logger.error(traceback.format_exc())
-            raise HTTPException(status_code=500, detail=f"处理失败: {str(e)}")
+            return response_formatter.wrap_exception(e, "TTS+字幕+视频合成处理失败")
 
     # ==================== 综合处理（基于模板） ====================
     @api_router.get("/batch/templates")
@@ -1419,26 +1641,31 @@ def register_routes(app) -> None:
         Returns:
             Dict[str, Any]: 模板列表
         """
-        from modules.template_manager import template_manager
-        
-        templates = []
-        for template_name in template_manager.get_template_names():
-            template_info = template_manager.get_template_info(template_name)
-            templates.append({
-                "name": template_info.get("name"),
-                "description": template_info.get("description"),
-                "version": template_info.get("version"),
-                "character": template_info.get("character"),
-                "theme": template_info.get("theme"),
-                "task_count": template_info.get("task_count"),
-                "parameters": list(template_info.get("parameters", {}).keys())
-            })
-        
-        return {
-            "success": True,
-            "count": len(templates),
-            "templates": templates
-        }
+        try:
+            from modules.template_manager import template_manager
+
+            templates = []
+            for template_name in template_manager.get_template_names():
+                template_info = template_manager.get_template_info(template_name)
+                templates.append({
+                    "name": template_info.get("name"),
+                    "description": template_info.get("description"),
+                    "version": template_info.get("version"),
+                    "character": template_info.get("character"),
+                    "theme": template_info.get("theme"),
+                    "task_count": template_info.get("task_count"),
+                    "parameters": list(template_info.get("parameters", {}).keys())
+                })
+
+            return response_formatter.success(
+                data={
+                    "count": len(templates),
+                    "templates": templates
+                },
+                message="获取模板列表成功"
+            )
+        except Exception as e:
+            return response_formatter.wrap_exception(e, "获取模板列表失败")
 
     @api_router.get("/batch/template/{template_name}")
     async def get_template_detail(
@@ -1455,16 +1682,22 @@ def register_routes(app) -> None:
         Returns:
             Dict[str, Any]: 模板详细信息
         """
-        from modules.template_manager import template_manager
-        
-        template_info = template_manager.get_template_info(template_name)
-        if not template_info:
-            raise HTTPException(status_code=404, detail=f"模板不存在: {template_name}")
-        
-        return {
-            "success": True,
-            "template": template_info
-        }
+        try:
+            from modules.template_manager import template_manager
+
+            template_info = template_manager.get_template_info(template_name)
+            if not template_info:
+                return response_formatter.error(
+                    message=f"模板不存在: {template_name}",
+                    error_code="TEMPLATE_NOT_FOUND"
+                )
+
+            return response_formatter.success(
+                data={"template": template_info},
+                message="获取模板详细信息成功"
+            )
+        except Exception as e:
+            return response_formatter.wrap_exception(e, "获取模板详细信息失败")
 
     @api_router.post("/batch/execute")
     async def execute_template(
@@ -1497,18 +1730,21 @@ def register_routes(app) -> None:
         Returns:
             Dict[str, Any]: 执行结果
         """
-        from modules.task_orchestrator import task_orchestrator
-        from utils.file_utils import FileUtils
-        
         try:
+            from modules.task_orchestrator import task_orchestrator
+            from utils.file_utils import FileUtils
+
             # 验证模板是否存在
             from modules.template_manager import template_manager
             if not template_manager.get_template(template_name):
-                raise HTTPException(status_code=404, detail=f"模板不存在: {template_name}")
-            
+                return response_formatter.error(
+                    message=f"模板不存在: {template_name}",
+                    error_code="TEMPLATE_NOT_FOUND"
+                )
+
             # 创建任务目录
             job_dir = FileUtils.create_job_dir()
-            
+
             # 准备参数
             parameters = {
                 "username": username,
@@ -1519,7 +1755,7 @@ def register_routes(app) -> None:
                 "tts_text": tts_text,
                 "user_images": []
             }
-            
+
             # 处理用户图片 - 优先使用上传方式
             if user_images:
                 # 处理上传的图片
@@ -1534,31 +1770,39 @@ def register_routes(app) -> None:
                 paths = [p.strip() for p in user_images_paths.strip().split('\n') if p.strip()]
                 for path in paths[:6]:  # 最多6张图片
                     parameters["user_images"].append(path)
-            
+
             # 进度回调（用于日志记录）
             async def progress_callback(progress_info):
                 Logger.info(f"任务进度: {progress_info['task_name']} - {progress_info['completed']}/{progress_info['total']} ({progress_info['progress']:.1%})")
-            
+
             # 执行模板
             result = await task_orchestrator.execute_template(
                 template_name,
                 parameters,
                 progress_callback
             )
-            
+
             # 使用统一的结果格式化工具
             from utils.result_formatter import result_formatter
             formatted_result = result_formatter.format_template_result(result)
-            
-            return formatted_result
-            
-        except HTTPException:
-            raise
+
+            # 检查结果
+            if formatted_result.get("success", False):
+                return response_formatter.success(
+                    data=formatted_result,
+                    message="模板执行成功"
+                )
+            else:
+                return response_formatter.error(
+                    message=formatted_result.get("error", "模板执行失败"),
+                    error_code="TEMPLATE_EXECUTE_FAILED"
+                )
+
         except Exception as e:
             Logger.error(f"模板执行失败: {e}")
             import traceback
             Logger.error(traceback.format_exc())
-            raise HTTPException(status_code=500, detail=f"模板执行失败: {str(e)}")
+            return response_formatter.wrap_exception(e, "模板执行失败")
 
     @api_router.post("/batch/execute_json")
     async def execute_template_json(
@@ -1577,46 +1821,57 @@ def register_routes(app) -> None:
         Returns:
             Dict[str, Any]: 执行结果
         """
-        from modules.task_orchestrator import task_orchestrator
-        from modules.template_manager import template_manager
-        from utils.file_utils import FileUtils
-        
         try:
+            from modules.task_orchestrator import task_orchestrator
+            from modules.template_manager import template_manager
+            from utils.file_utils import FileUtils
+
             template_name = request.get("template_name")
             parameters = request.get("parameters", {})
-            
+
             # 验证模板是否存在
             if not template_manager.get_template(template_name):
-                raise HTTPException(status_code=404, detail=f"模板不存在: {template_name}")
-            
+                return response_formatter.error(
+                    message=f"模板不存在: {template_name}",
+                    error_code="TEMPLATE_NOT_FOUND"
+                )
+
             # 创建任务目录
             job_dir = FileUtils.create_job_dir()
             parameters["job_dir"] = str(job_dir)
-            
+
             # 进度回调（用于日志记录）
             async def progress_callback(progress_info):
                 Logger.info(f"任务进度: {progress_info['task_name']} - {progress_info['completed']}/{progress_info['total']} ({progress_info['progress']:.1%})")
-            
+
             # 执行模板
             result = await task_orchestrator.execute_template(
                 template_name,
                 parameters,
                 progress_callback
             )
-            
+
             # 使用统一的结果格式化工具
             from utils.result_formatter import result_formatter
             formatted_result = result_formatter.format_template_result(result)
-            
-            return formatted_result
-            
-        except HTTPException:
-            raise
+
+            # 检查结果
+            if formatted_result.get("success", False):
+                return response_formatter.success(
+                    data=formatted_result,
+                    message="模板执行成功"
+                )
+            else:
+                return response_formatter.error(
+                    message=formatted_result.get("error", "模板执行失败"),
+                    error_code="TEMPLATE_EXECUTE_FAILED"
+                )
+
         except Exception as e:
             Logger.error(f"模板执行失败: {e}")
             import traceback
             Logger.error(traceback.format_exc())
-            raise HTTPException(status_code=500, detail=f"模板执行失败: {str(e)}")
+            return response_formatter.wrap_exception(e, "模板执行失败")
 
     # 注册路由器到应用
     app.include_router(api_router)
