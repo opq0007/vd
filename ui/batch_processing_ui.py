@@ -122,14 +122,6 @@ def create_batch_processing_interface() -> gr.Blocks:
                 progress_bar = gr.Progress()
                 status_info = gr.HTML("<div>等待开始...</div>")
                 
-                # 任务列表
-                gr.Markdown("### 📋 任务列表")
-                task_list = gr.JSON(label="任务列表", visible=False)
-                
-                # 结果展示区域
-                gr.Markdown("### 🎬 处理结果")
-                result_status = gr.JSON(label="详细状态", visible=False)
-                
                 # 任务执行详情
                 gr.Markdown("### 📋 任务执行详情")
                 task_results = gr.HTML("<div>等待开始...</div>")
@@ -137,10 +129,6 @@ def create_batch_processing_interface() -> gr.Blocks:
                 # 视频预览
                 gr.Markdown("### 🎥 最终视频预览")
                 video_preview = gr.Video(label="视频预览", visible=False)
-                
-                # 文件下载
-                gr.Markdown("### 📥 下载输出文件")
-                output_files = gr.File(label="下载输出文件", visible=False)
         
         # 事件处理
         def update_template_info(template_name):
@@ -217,7 +205,6 @@ def create_batch_processing_interface() -> gr.Blocks:
                     return (
                         "<div style='color: red;'>请选择有效的模板</div>",
                         None,
-                        None,
                         None
                     )
                 
@@ -289,14 +276,11 @@ def create_batch_processing_interface() -> gr.Blocks:
                 
                 # 从任务输出中提取最终视频文件
                 video_output = extract_final_video(result)
-                output_file_list = extract_output_files(result)
-                
+
                 return (
                     status_html,
                     task_results_html,
-                    result,
-                    gr.update(value=video_output, visible=bool(video_output)),
-                    gr.update(value=output_file_list, visible=bool(output_file_list))
+                    gr.update(value=video_output, visible=bool(video_output))
                 )
                 
             except Exception as e:
@@ -310,14 +294,12 @@ def create_batch_processing_interface() -> gr.Blocks:
                     <p>错误: {str(e)}</p>
                 </div>
                 """
-                
+
                 return (
                     status_html,
-                    {"error": str(e)},
-                    None,
+                    "",
                     None
-                )
-        
+                )        
         execute_btn.click(
             fn=execute_batch_processing,
             inputs=[
@@ -334,9 +316,7 @@ def create_batch_processing_interface() -> gr.Blocks:
             outputs=[
                 status_info,
                 task_results,
-                result_status,
-                video_preview,
-                output_files
+                video_preview
             ]
         )
     
@@ -374,43 +354,12 @@ def extract_output_files_from_task(task_output: Dict[str, Any]) -> str:
 def extract_final_video(result: Dict[str, Any]) -> Optional[str]:
     """
     从执行结果中提取最终视频文件
-    
+
     Args:
         result: 模板执行结果
-        
+
     Returns:
         视频文件路径，如果没有则返回None
     """
     from utils.result_formatter import result_formatter
     return result_formatter.extract_final_video(result)
-
-
-def extract_output_files(result: Dict[str, Any]) -> Optional[str]:
-    """
-    从执行结果中提取所有输出文件
-    
-    Args:
-        result: 模块执行结果
-        
-    Returns:
-        输出文件路径，如果没有则返回None
-    """
-    task_outputs = result.get("task_outputs", {})
-    files = []
-    
-    # 收集所有任务输出文件
-    for task_id, task_output in task_outputs.items():
-        if "error" not in task_output:
-            for key, value in task_output.items():
-                if isinstance(value, str) and value and ("output" in key.lower() or "path" in key.lower()):
-                    files.append(value)
-                elif isinstance(value, list):
-                    for item in value:
-                        if isinstance(item, str) and item:
-                            files.append(item)
-    
-    # 返回第一个文件（通常是最终输出）
-    if files:
-        return files[0]
-    
-    return None

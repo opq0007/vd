@@ -124,6 +124,9 @@ class VideoEditorModule:
                         base_video = local_input
 
             # 应用视频效果
+            processing_success = True  # 标志变量，跟踪处理是否成功
+            error_messages = []  # 收集错误信息
+
             if base_video and FileUtils.is_video_file(str(base_video)):
                 has_effects = flower_config or image_config or video_config or watermark_config
 
@@ -141,7 +144,10 @@ class VideoEditorModule:
                                 local_video_config['path'] = str(video_to_insert_path)
                                 Logger.info(f"插视频文件已处理: {video_config['path']} -> {video_to_insert_path}")
                         except Exception as e:
-                            Logger.error(f"处理插视频文件失败: {e}")
+                            error_msg = f"处理插视频文件失败: {str(e)}"
+                            Logger.error(error_msg)
+                            error_messages.append(error_msg)
+                            processing_success = False  # 标记为失败
 
                     try:
                         VideoEffectsProcessor._current_job_id = out_basename
@@ -195,26 +201,39 @@ class VideoEditorModule:
                                 os.chdir(original_cwd)
 
                             except Exception as merge_error:
-                                Logger.error(f"音频处理失败: {merge_error}")
+                                error_msg = f"音频处理失败: {str(merge_error)}"
+                                Logger.error(error_msg)
+                                error_messages.append(error_msg)
                                 shutil.copy2(temp_effects_video, video_output)
 
                             base_video = video_output
                         else:
-                            Logger.warning("视频效果应用失败")
+                            error_msg = "视频效果应用失败：VideoEffectsProcessor 返回 False"
+                            Logger.warning(error_msg)
+                            error_messages.append(error_msg)
+                            processing_success = False  # 标记为失败
 
                     except Exception as e:
-                        Logger.error(f"视频效果应用失败: {e}")
+                        error_msg = f"视频效果应用失败: {str(e)}"
+                        Logger.error(error_msg)
                         import traceback
                         Logger.error(traceback.format_exc())
+                        error_messages.append(error_msg)
+                        processing_success = False  # 标记为失败
 
             # 构建结果
             result = {
-                "success": True,
+                "success": processing_success,  # 使用标志变量
                 "out_basename": out_basename
             }
 
             if base_video and base_video.exists():
                 result["video_output_path"] = str(base_video)
+
+            # 如果处理失败，添加错误信息
+            if not processing_success and error_messages:
+                result["error"] = "; ".join(error_messages)
+                result["errors"] = error_messages  # 保留详细错误列表
 
             Logger.info(f"视频编辑完成: {out_basename}")
             return result

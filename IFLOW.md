@@ -650,6 +650,9 @@ Content-Type: application/json
   "template_name": "奥特曼生日祝福",
   "total_tasks": 9,
   "completed_tasks": 9,
+  "success_count": 7,
+  "failed_count": 1,
+  "skipped_count": 1,
   "final_video": "output/job_20260119-120000/final_video.mp4",
   "task_results": [
     {
@@ -713,9 +716,10 @@ result = response.json()
 
 if result["success"]:
     print(f"✅ 处理完成！")
-    print(f"完成任务: {result['completed_tasks']}/{result['total_tasks']}")
+    print(f"总任务: {result['total_tasks']}")
+    print(f"成功: {result['success_count']} | 失败: {result['failed_count']} | 跳过: {result['skipped_count']}")
     print(f"最终视频: {result['final_video']}")
-    
+
     # 4. 下载最终视频
     if result["final_video"]:
         video_response = requests.get(
@@ -797,6 +801,9 @@ API返回以下HTTP状态码：
 4. **异步处理**：模板执行是异步的，可能需要较长时间
 5. **文件路径**：使用路径方式时，确保文件路径可访问
 6. **最终视频**：API会自动提取并返回最终生成的视频文件路径
+   - `final_video` 字段基于模板定义中最后一个任务的执行结果
+   - 如果最后一个任务执行失败或没有输出，`final_video` 为 `null`
+   - 建议在下载前检查 `final_video` 是否为有效路径
 
 ## 故障排除
 

@@ -15,27 +15,61 @@ class ResultFormatter:
     def extract_final_video(result: Dict[str, Any]) -> Optional[str]:
         """
         从执行结果中提取最终视频文件
-        
+
         Args:
             result: 模板执行结果
-            
+
         Returns:
             视频文件路径，如果没有则返回None
         """
+        from modules.template_manager import template_manager
+
+        template_name = result.get("template_name", "")
         task_outputs = result.get("task_outputs", {})
-        
-        # 查找视频合并任务的输出
-        for task_id, task_output in task_outputs.items():
-            if "error" not in task_output:
-                for key, value in task_output.items():
-                    if isinstance(value, str) and value.endswith(('.mp4', '.avi', '.mov', '.mkv', '.webm')):
-                        return value
-                        break
-                # 如果找到了视频文件，跳出外层循环
-                if any(isinstance(v, str) and v.endswith(('.mp4', '.avi', '.mov', '.mkv', '.webm')) 
-                       for v in task_output.values()):
-                    break
-        
+
+        # 获取模板定义
+        template = template_manager.get_template(template_name)
+        if not template:
+            Logger.warning(f"模板不存在: {template_name}")
+            return None
+
+        # 获取模板中的任务列表（按定义顺序）
+        tasks = template.get("tasks", [])
+        if not tasks:
+            Logger.warning(f"模板中没有任务: {template_name}")
+            return None
+
+        # 获取最后一个任务
+        last_task = tasks[-1]
+        last_task_id = last_task["id"]
+        last_task_output = task_outputs.get(last_task_id, {})
+
+        Logger.info(f"提取最终视频: 使用最后一个任务 {last_task_id} ({last_task['name']}) 的结果")
+
+        # 检查最后一个任务是否执行成功
+        if last_task_output.get("success") is False or "error" in last_task_output:
+            error_msg = last_task_output.get("error", "未知错误")
+            Logger.warning(f"最后一个任务 {last_task_id} 执行失败: {error_msg}，final_video 为空")
+            return None
+
+        # 检查最后一个任务是否有输出
+        if not last_task_output:
+            Logger.warning(f"最后一个任务 {last_task_id} 没有输出，final_video 为空")
+            return None
+
+        # 从最后一个任务的输出中提取视频文件
+        for key, value in last_task_output.items():
+            if isinstance(value, str) and value.endswith(('.mp4', '.avi', '.mov', '.mkv', '.webm')):
+                Logger.info(f"找到最终视频: {value}")
+                return value
+
+        # 如果最后一个任务的输出字段中没有视频文件，检查 output 字段
+        output_value = last_task_output.get("output", "")
+        if output_value and isinstance(output_value, str) and output_value.endswith(('.mp4', '.avi', '.mov', '.mkv', '.webm')):
+            Logger.info(f"从 output 字段找到最终视频: {output_value}")
+            return output_value
+
+        Logger.warning(f"最后一个任务 {last_task_id} 的输出中没有找到视频文件，final_video 为空")
         return None
 
     @staticmethod
@@ -111,14 +145,39 @@ class ResultFormatter:
             task_id = task["id"]
             task_output = task_outputs.get(task_id, {})
             
+            # 判断任务状态
+            # 1. 优先检查 success 字段（如果明确标记为失败）
+            if task_output.get("success") is False:
+                status = "failed"
+                error_msg = task_output.get("error", "任务执行失败")
+            # 2. 如果有错误字段，标记为失败
+            elif "error" in task_output:
+                status = "failed"
+                error_msg = task_output.get("error", "未知错误")
+            # 3. 如果没有输出（空字典），标记为跳过
+            elif not task_output:
+                status = "skipped"
+                error_msg = None
+            # 4. 如果有输出，检查是否有实际的输出内容
+            else:
+                # 提取输出文件
+                output_files = ResultFormatter.extract_output_files_from_task(task_output)
+                if output_files:
+                    status = "success"
+                    error_msg = None
+                else:
+                    # 有输出但没有文件，标记为跳过
+                    status = "skipped"
+                    error_msg = None
+            
             # 构建任务结果
             task_result = {
                 "index": idx,
                 "id": task_id,
                 "name": task["name"],
                 "type": task["type"],
-                "status": "success" if "error" not in task_output else "failed",
-                "error": task_output.get("error") if "error" in task_output else None
+                "status": status,
+                "error": error_msg
             }
             
             # 提取输出文件
@@ -147,13 +206,21 @@ class ResultFormatter:
         
         # 构建任务执行结果详情
         task_results = ResultFormatter.build_task_results(result, template_name)
-        
+
+        # 统计成功/失败/跳过的任务数量
+        success_count = sum(1 for task in task_results if task.get("status") == "success")
+        failed_count = sum(1 for task in task_results if task.get("status") == "failed")
+        skipped_count = sum(1 for task in task_results if task.get("status") == "skipped")
+
         # 构建格式化结果
         formatted_result = {
             "success": result.get("success", False),
             "template_name": template_name,
             "total_tasks": result.get("total_tasks"),
             "completed_tasks": result.get("completed_tasks"),
+            "success_count": success_count,
+            "failed_count": failed_count,
+            "skipped_count": skipped_count,
             "final_video": final_video,
             "task_results": task_results,
             "error": result.get("error") if not result.get("success") else None
@@ -186,16 +253,45 @@ class ResultFormatter:
         task_outputs = result.get("task_outputs", {})
         total_tasks = result.get("total_tasks", 0)
         completed_tasks = result.get("completed_tasks", 0)
-        
+
+        # 重新构建任务结果列表以获取准确的状态统计
+        from modules.template_manager import template_manager
+        template = template_manager.get_template(result.get("template_name", ""))
+        tasks = template.get("tasks", []) if template else []
+
+        # 统计成功和失败的任务数量
+        success_count = 0
+        failed_count = 0
+        skipped_count = 0
+
+        for task in tasks:
+            task_id = task["id"]
+            task_output = task_outputs.get(task_id, {})
+
+            # 判断任务状态
+            if task_output.get("success") is False or "error" in task_output:
+                failed_count += 1
+            elif not task_output:
+                skipped_count += 1
+            else:
+                # 检查是否有输出文件
+                output_files = ResultFormatter.extract_output_files_from_task(task_output)
+                if output_files:
+                    success_count += 1
+                else:
+                    skipped_count += 1
+
         # 计算成功率，避免除零错误
-        success_rate = (completed_tasks / total_tasks * 100) if total_tasks > 0 else 0.0
+        success_rate = (success_count / total_tasks * 100) if total_tasks > 0 else 0.0
         
         html = f"""
         <div style="border: 1px solid #ddd; padding: 15px; border-radius: 5px; background-color: #f9f9f9;">
             <h4 style="margin-top: 0; color: #333;">📋 任务执行详情</h4>
             <p style="margin-bottom: 15px;">
-                <strong>总任务数:</strong> {total_tasks} | 
-                <strong>完成任务:</strong> {completed_tasks} | 
+                <strong>总任务数:</strong> {total_tasks} |
+                <strong style="color: #4CAF50;">✅ 成功:</strong> {success_count} |
+                <strong style="color: #f44336;">❌ 失败:</strong> {failed_count} |
+                <strong style="color: #FF9800;">⏭️ 跳过:</strong> {skipped_count} |
                 <strong>成功率:</strong> {success_rate:.1f}%
             </p>
             <table style="width: 100%; border-collapse: collapse; font-size: 14px;">
@@ -225,24 +321,35 @@ class ResultFormatter:
                 # 获取任务执行结果
                 task_output = task_outputs.get(task_id, {})
                 
-                # 判断任务状态
-                if "error" in task_output:
+                # 判断任务状态（优先检查 success 字段）
+                if task_output.get("success") is False:
+                    status = "❌ 失败"
+                    status_color = "#f44336"
+                    error_msg = task_output.get("error", "任务执行失败")
+                    output_files = "-"
+                    remark = f"错误: {error_msg}"
+                elif "error" in task_output:
                     status = "❌ 失败"
                     status_color = "#f44336"
                     error_msg = task_output.get("error", "未知错误")
                     output_files = "-"
                     remark = f"错误: {error_msg}"
-                elif task_output:
-                    status = "✅ 成功"
-                    status_color = "#4CAF50"
-                    # 提取输出文件（格式化为前端展示格式）
-                    output_files = ResultFormatter.extract_output_files_from_task(task_output, format_for_display=True)
-                    remark = "执行成功"
-                else:
+                elif not task_output:
                     status = "⏭️ 跳过"
                     status_color = "#FF9800"
                     output_files = "-"
                     remark = "未执行"
+                else:
+                    # 提取输出文件（格式化为前端展示格式）
+                    output_files = ResultFormatter.extract_output_files_from_task(task_output, format_for_display=True)
+                    if output_files and output_files != "-":
+                        status = "✅ 成功"
+                        status_color = "#4CAF50"
+                        remark = "执行成功"
+                    else:
+                        status = "⏭️ 跳过"
+                        status_color = "#FF9800"
+                        remark = "无输出"
                 
                 html += f"""
                     <tr style="background-color: {'#f5f5f5' if idx % 2 == 0 else 'white'};">

@@ -103,8 +103,11 @@ class SubtitleModule:
                 # 确保 job_dir 存在
                 job_dir = Path(job_dir)
                 job_dir.mkdir(parents=True, exist_ok=True)
-            
+
             out_basename = out_basename or f"output_{FileUtils.generate_job_id()}"
+
+            # 初始化错误信息收集列表
+            error_messages = []
 
             # 处理输入文件
             local_input = None  # 视频文件路径
@@ -406,7 +409,9 @@ class SubtitleModule:
                     base_video = merged_video_path
                     Logger.info(f"音视频合并成功: {merged_video_path}")
                 except Exception as e:
-                    Logger.error(f"音视频合并失败: {e}")
+                    error_msg = f"音视频合并失败: {str(e)}"
+                    Logger.error(error_msg)
+                    error_messages.append(error_msg)
                     # 合并失败，使用原始视频
                     if local_input and FileUtils.is_video_file(str(local_input)):
                         base_video = local_input
@@ -416,6 +421,9 @@ class SubtitleModule:
                         base_video = None
 
             # 烧录字幕
+            processing_success = True  # 标志变量，跟踪处理是否成功
+            error_messages = []  # 收集错误信息
+
             if burn_subtitles != "none" and srt_path and base_video:
                 srt_to_use = bilingual_srt_path if bilingual else srt_path
                 hardsub_video = job_dir / f"{out_basename}_hardsub{base_video.suffix}"
@@ -426,18 +434,26 @@ class SubtitleModule:
                     video_output = hardsub_video
                     Logger.info(f"硬字幕视频生成成功: {video_output}")
                 except Exception as e:
-                    Logger.error(f"硬字幕视频生成失败: {e}")
+                    error_msg = f"硬字幕视频生成失败: {str(e)}"
+                    Logger.error(error_msg)
                     import traceback
                     Logger.error(traceback.format_exc())
+                    error_messages.append(error_msg)
                     # 烧录失败，使用原始视频
                     video_output = base_video
+                    processing_success = False  # 标记为失败
 
             # 构建结果
             result = {
-                "success": True,
+                "success": processing_success,  # 使用标志变量
                 "out_basename": out_basename,
                 "segments_count": len(segments) if segments else 0
             }
+
+            # 如果处理失败，添加错误信息
+            if not processing_success and error_messages:
+                result["error"] = "; ".join(error_messages)
+                result["errors"] = error_messages  # 保留详细错误列表
 
             # 只添加实际存在的文件路径
             if srt_path and srt_path.exists():
