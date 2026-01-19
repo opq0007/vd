@@ -1526,5 +1526,308 @@ def register_routes(app) -> None:
             Logger.error(traceback.format_exc())
             raise HTTPException(status_code=500, detail=f"视频合并失败: {str(e)}")
 
+    # ==================== 综合处理（基于模板） ====================
+    @api_router.get("/batch/templates")
+    async def list_templates(
+        payload: Dict[str, Any] = Depends(verify_token)
+    ) -> Dict[str, Any]:
+        """
+        获取所有可用的模板列表
+
+        Args:
+            payload: 认证载荷
+
+        Returns:
+            Dict[str, Any]: 模板列表
+        """
+        from modules.template_manager import template_manager
+        
+        templates = []
+        for template_name in template_manager.get_template_names():
+            template_info = template_manager.get_template_info(template_name)
+            templates.append({
+                "name": template_info.get("name"),
+                "description": template_info.get("description"),
+                "version": template_info.get("version"),
+                "character": template_info.get("character"),
+                "theme": template_info.get("theme"),
+                "task_count": template_info.get("task_count"),
+                "parameters": list(template_info.get("parameters", {}).keys())
+            })
+        
+        return {
+            "success": True,
+            "count": len(templates),
+            "templates": templates
+        }
+
+    @api_router.get("/batch/template/{template_name}")
+    async def get_template_detail(
+        template_name: str,
+        payload: Dict[str, Any] = Depends(verify_token)
+    ) -> Dict[str, Any]:
+        """
+        获取指定模板的详细信息
+
+        Args:
+            template_name: 模板名称
+            payload: 认证载荷
+
+        Returns:
+            Dict[str, Any]: 模板详细信息
+        """
+        from modules.template_manager import template_manager
+        
+        template_info = template_manager.get_template_info(template_name)
+        if not template_info:
+            raise HTTPException(status_code=404, detail=f"模板不存在: {template_name}")
+        
+        return {
+            "success": True,
+            "template": template_info
+        }
+
+    @api_router.post("/batch/execute")
+    async def execute_template(
+        template_name: str = Form(...),
+        username: str = Form(""),
+        age: int = Form(6),
+        theme: str = Form("生日快乐"),
+        character: str = Form("奥特曼"),
+        sub_character: str = Form(""),
+        tts_text: str = Form(""),
+        user_images: UploadFile = File(None),
+        user_images_paths: str = Form(None),
+        payload: Dict[str, Any] = Depends(verify_token)
+    ) -> Dict[str, Any]:
+        """
+        执行模板（综合处理）
+
+        Args:
+            template_name: 模板名称
+            username: 用户名
+            age: 年龄
+            theme: 主题文字
+            character: 操作模板对象
+            sub_character: 二级对象
+            tts_text: TTS文本内容
+            user_images: 上传的用户图片文件（最多6张）
+            user_images_paths: 用户图片路径（多行文本，每行一个路径）
+            payload: 认证载荷
+
+        Returns:
+            Dict[str, Any]: 执行结果
+        """
+        from modules.task_orchestrator import task_orchestrator
+        from utils.file_utils import FileUtils
+        
+        try:
+            # 验证模板是否存在
+            from modules.template_manager import template_manager
+            if not template_manager.get_template(template_name):
+                raise HTTPException(status_code=404, detail=f"模板不存在: {template_name}")
+            
+            # 创建任务目录
+            job_dir = FileUtils.create_job_dir()
+            
+            # 准备参数
+            parameters = {
+                "username": username,
+                "age": age,
+                "theme": theme,
+                "character": character,
+                "sub_character": sub_character,
+                "tts_text": tts_text,
+                "user_images": []
+            }
+            
+            # 处理用户图片 - 优先使用上传方式
+            if user_images:
+                # 处理上传的图片
+                if hasattr(user_images, 'filename'):
+                    # 单个文件
+                    image_path = job_dir / user_images.filename
+                    with open(image_path, "wb") as f:
+                        f.write(await user_images.read())
+                    parameters["user_images"].append(str(image_path))
+            elif user_images_paths and user_images_paths.strip():
+                # 使用路径输入方式
+                paths = [p.strip() for p in user_images_paths.strip().split('\n') if p.strip()]
+                for path in paths[:6]:  # 最多6张图片
+                    parameters["user_images"].append(path)
+            
+            # 进度回调（用于日志记录）
+            async def progress_callback(progress_info):
+                Logger.info(f"任务进度: {progress_info['task_name']} - {progress_info['completed']}/{progress_info['total']} ({progress_info['progress']:.1%})")
+            
+            # 执行模板
+            result = await task_orchestrator.execute_template(
+                template_name,
+                parameters,
+                progress_callback
+            )
+            
+            # 提取最终视频文件
+            final_video = None
+            if result.get("success"):
+                task_outputs = result.get("task_outputs", {})
+                for task_id, task_output in task_outputs.items():
+                    if "error" not in task_output:
+                        for key, value in task_output.items():
+                            if isinstance(value, str) and value.endswith(('.mp4', '.avi', '.mov', '.mkv', '.webm')):
+                                final_video = value
+                                break
+                        if final_video:
+                            break
+            
+            # 构建任务执行结果详情
+            task_results = []
+            if result.get("success"):
+                template = template_manager.get_template(template_name)
+                if template:
+                    tasks = template.get("tasks", [])
+                    for idx, task in enumerate(tasks, 1):
+                        task_id = task["id"]
+                        task_output = result.get("task_outputs", {}).get(task_id, {})
+                        
+                        task_result = {
+                            "index": idx,
+                            "id": task_id,
+                            "name": task["name"],
+                            "type": task["type"],
+                            "status": "success" if "error" not in task_output else "failed",
+                            "error": task_output.get("error") if "error" in task_output else None
+                        }
+                        
+                        # 提取输出文件
+                        output_files = []
+                        for key, value in task_output.items():
+                            if isinstance(value, str) and value and ("output" in key.lower() or "path" in key.lower()):
+                                output_files.append(value)
+                        task_result["output_files"] = output_files[:3]  # 最多显示3个文件
+                        
+                        task_results.append(task_result)
+            
+            return {
+                "success": result.get("success", False),
+                "template_name": result.get("template_name"),
+                "total_tasks": result.get("total_tasks"),
+                "completed_tasks": result.get("completed_tasks"),
+                "final_video": final_video,
+                "task_results": task_results,
+                "error": result.get("error") if not result.get("success") else None
+            }
+            
+        except HTTPException:
+            raise
+        except Exception as e:
+            Logger.error(f"模板执行失败: {e}")
+            import traceback
+            Logger.error(traceback.format_exc())
+            raise HTTPException(status_code=500, detail=f"模板执行失败: {str(e)}")
+
+    @api_router.post("/batch/execute_json")
+    async def execute_template_json(
+        request: Dict[str, Any],
+        payload: Dict[str, Any] = Depends(verify_token)
+    ) -> Dict[str, Any]:
+        """
+        执行模板（JSON格式，适合程序化调用）
+
+        Args:
+            request: JSON格式的请求体，包含：
+                - template_name: 模板名称
+                - parameters: 模板参数字典
+            payload: 认证载荷
+
+        Returns:
+            Dict[str, Any]: 执行结果
+        """
+        from modules.task_orchestrator import task_orchestrator
+        from modules.template_manager import template_manager
+        from utils.file_utils import FileUtils
+        
+        try:
+            template_name = request.get("template_name")
+            parameters = request.get("parameters", {})
+            
+            # 验证模板是否存在
+            if not template_manager.get_template(template_name):
+                raise HTTPException(status_code=404, detail=f"模板不存在: {template_name}")
+            
+            # 创建任务目录
+            job_dir = FileUtils.create_job_dir()
+            parameters["job_dir"] = str(job_dir)
+            
+            # 进度回调（用于日志记录）
+            async def progress_callback(progress_info):
+                Logger.info(f"任务进度: {progress_info['task_name']} - {progress_info['completed']}/{progress_info['total']} ({progress_info['progress']:.1%})")
+            
+            # 执行模板
+            result = await task_orchestrator.execute_template(
+                template_name,
+                parameters,
+                progress_callback
+            )
+            
+            # 提取最终视频文件
+            final_video = None
+            if result.get("success"):
+                task_outputs = result.get("task_outputs", {})
+                for task_id, task_output in task_outputs.items():
+                    if "error" not in task_output:
+                        for key, value in task_output.items():
+                            if isinstance(value, str) and value.endswith(('.mp4', '.avi', '.mov', '.mkv', '.webm')):
+                                final_video = value
+                                break
+                        if final_video:
+                            break
+            
+            # 构建任务执行结果详情
+            task_results = []
+            if result.get("success"):
+                template = template_manager.get_template(template_name)
+                if template:
+                    tasks = template.get("tasks", [])
+                    for idx, task in enumerate(tasks, 1):
+                        task_id = task["id"]
+                        task_output = result.get("task_outputs", {}).get(task_id, {})
+                        
+                        task_result = {
+                            "index": idx,
+                            "id": task_id,
+                            "name": task["name"],
+                            "type": task["type"],
+                            "status": "success" if "error" not in task_output else "failed",
+                            "error": task_output.get("error") if "error" in task_output else None
+                        }
+                        
+                        # 提取输出文件
+                        output_files = []
+                        for key, value in task_output.items():
+                            if isinstance(value, str) and value and ("output" in key.lower() or "path" in key.lower()):
+                                output_files.append(value)
+                        task_result["output_files"] = output_files[:3]  # 最多显示3个文件
+                        
+                        task_results.append(task_result)
+            
+            return {
+                "success": result.get("success", False),
+                "template_name": result.get("template_name"),
+                "total_tasks": result.get("total_tasks"),
+                "completed_tasks": result.get("completed_tasks"),
+                "final_video": final_video,
+                "task_results": task_results,
+                "error": result.get("error") if not result.get("success") else None
+            }
+            
+        except HTTPException:
+            raise
+        except Exception as e:
+            Logger.error(f"模板执行失败: {e}")
+            import traceback
+            Logger.error(traceback.format_exc())
+            raise HTTPException(status_code=500, detail=f"模板执行失败: {str(e)}")
+
     # 注册路由器到应用
     app.include_router(api_router)

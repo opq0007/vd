@@ -314,6 +314,15 @@ python app.py
 - `GET /api/transition/list` - 获取转场效果列表
 - `GET /api/transition/params/{transition_name}` - 获取转场参数
 
+#### 综合处理（基于模板）
+- `GET /api/batch/templates` - 获取所有可用的模板列表
+- `GET /api/batch/template/{template_name}` - 获取指定模板的详细信息
+- `POST /api/batch/execute` - 执行模板（表单格式）
+- `POST /api/batch/execute_json` - 执行模板（JSON格式，适合程序化调用）
+
+#### 文件下载
+- `GET /api/file/download` - 下载文件（返回二进制流）
+
 ## 配置管理
 
 所有配置通过 `Config` 类集中管理，支持环境变量覆盖：
@@ -458,6 +467,337 @@ MAX_FILE_SIZE = 50 * 1024 * 1024  # 50MB
 5. 使用 HTTPS 部署
 6. 添加请求速率限制
 
+## 综合处理API使用指南
+
+### 概述
+
+综合处理API提供基于模板的自动化视频处理功能，支持通过API接口调用预定义的模板，一键完成复杂的视频处理任务。
+
+### API端点
+
+#### 1. 获取模板列表
+```
+GET /api/batch/templates
+```
+
+**功能**：获取所有可用的模板列表
+
+**请求头**：
+```
+Authorization: Bearer {token}
+```
+
+**响应示例**：
+```json
+{
+  "success": true,
+  "count": 2,
+  "templates": [
+    {
+      "name": "奥特曼生日祝福",
+      "description": "奥特曼主题的生日祝福视频模板",
+      "version": "1.0",
+      "character": "atm",
+      "theme": "birthday",
+      "task_count": 9,
+      "parameters": ["username", "age", "theme_text", "tts_text", "user_images"]
+    }
+  ]
+}
+```
+
+#### 2. 获取模板详细信息
+```
+GET /api/batch/template/{template_name}
+```
+
+**功能**：获取指定模板的详细信息，包括参数定义
+
+**请求头**：
+```
+Authorization: Bearer {token}
+```
+
+**响应示例**：
+```json
+{
+  "success": true,
+  "template": {
+    "name": "奥特曼生日祝福",
+    "description": "奥特曼主题的生日祝福视频模板",
+    "version": "1.0",
+    "parameters": {
+      "username": {
+        "type": "string",
+        "description": "用户名",
+        "default": "小明"
+      },
+      "age": {
+        "type": "number",
+        "description": "年龄",
+        "default": 6
+      },
+      "theme_text": {
+        "type": "string",
+        "description": "主题文字",
+        "default": "生日快乐"
+      },
+      "tts_text": {
+        "type": "string",
+        "description": "TTS文本内容",
+        "default": ""
+      },
+      "user_images": {
+        "type": "array",
+        "description": "用户图片（0-5张）",
+        "default": []
+      }
+    },
+    "task_count": 9
+  }
+}
+```
+
+#### 3. 执行模板（表单格式）
+```
+POST /api/batch/execute
+```
+
+**功能**：执行模板，使用表单格式提交参数
+
+**请求头**：
+```
+Authorization: Bearer {token}
+Content-Type: multipart/form-data
+```
+
+**请求参数**：
+- `template_name`: 模板名称（必填）
+- `username`: 用户名
+- `age`: 年龄
+- `theme`: 主题文字
+- `character`: 操作模板对象
+- `sub_character`: 二级对象
+- `tts_text`: TTS文本内容
+- `user_images`: 上传的用户图片文件（最多6张）
+- `user_images_paths`: 用户图片路径（多行文本，每行一个路径）
+
+**响应示例**：
+```json
+{
+  "success": true,
+  "template_name": "奥特曼生日祝福",
+  "total_tasks": 9,
+  "completed_tasks": 9,
+  "final_video": "output/job_20260119-120000/final_video.mp4",
+  "task_results": [
+    {
+      "index": 1,
+      "id": "task1",
+      "name": "语音合成",
+      "type": "tts",
+      "status": "success",
+      "output_files": ["output/job_20260119-120000/out_1.wav"]
+    },
+    {
+      "index": 2,
+      "id": "task2",
+      "name": "生成字幕",
+      "type": "subtitle",
+      "status": "success",
+      "output_files": ["output/job_20260119-120000/out_2.srt"]
+    }
+  ]
+}
+```
+
+#### 4. 执行模板（JSON格式）
+```
+POST /api/batch/execute_json
+```
+
+**功能**：执行模板，使用JSON格式提交参数（适合程序化调用）
+
+**请求头**：
+```
+Authorization: Bearer {token}
+Content-Type: application/json
+```
+
+**请求体**：
+```json
+{
+  "template_name": "奥特曼生日祝福",
+  "parameters": {
+    "username": "小明",
+    "age": 6,
+    "theme": "生日快乐",
+    "character": "奥特曼",
+    "sub_character": "赛罗",
+    "tts_text": "生日快乐！",
+    "user_images": [
+      "path/to/image1.jpg",
+      "path/to/image2.jpg"
+    ]
+  }
+}
+```
+
+**响应示例**：
+```json
+{
+  "success": true,
+  "template_name": "奥特曼生日祝福",
+  "total_tasks": 9,
+  "completed_tasks": 9,
+  "final_video": "output/job_20260119-120000/final_video.mp4",
+  "task_results": [
+    {
+      "index": 1,
+      "id": "task1",
+      "name": "语音合成",
+      "type": "tts",
+      "status": "success",
+      "output_files": ["output/job_20260119-120000/out_1.wav"]
+    }
+  ]
+}
+```
+
+### 使用示例
+
+#### Python示例
+
+```python
+import requests
+
+# 配置
+BASE_URL = "http://127.0.0.1:7860"
+TOKEN = "whisper-api-key-2024"
+headers = {"Authorization": f"Bearer {TOKEN}"}
+
+# 1. 获取模板列表
+response = requests.get(f"{BASE_URL}/api/batch/templates", headers=headers)
+templates = response.json()
+print(f"可用模板: {templates['count']}个")
+for template in templates['templates']:
+    print(f"  - {template['name']}: {template['description']}")
+
+# 2. 获取模板详细信息
+template_name = "奥特曼生日祝福"
+response = requests.get(
+    f"{BASE_URL}/api/batch/template/{template_name}",
+    headers=headers
+)
+template_info = response.json()
+print(f"模板参数: {template_info['template']['parameters'].keys()}")
+
+# 3. 执行模板（JSON格式）
+response = requests.post(
+    f"{BASE_URL}/api/batch/execute_json",
+    json={
+        "template_name": template_name,
+        "parameters": {
+            "username": "小明",
+            "age": 6,
+            "theme": "生日快乐",
+            "character": "奥特曼",
+            "sub_character": "赛罗",
+            "tts_text": "生日快乐！",
+            "user_images": ["path/to/image1.jpg"]
+        }
+    },
+    headers=headers
+)
+result = response.json()
+
+if result["success"]:
+    print(f"✅ 处理完成！")
+    print(f"完成任务: {result['completed_tasks']}/{result['total_tasks']}")
+    print(f"最终视频: {result['final_video']}")
+    
+    # 4. 下载最终视频
+    if result["final_video"]:
+        video_response = requests.get(
+            f"{BASE_URL}/api/file/download",
+            params={"file_path": result["final_video"]},
+            headers=headers
+        )
+        with open("output.mp4", "wb") as f:
+            f.write(video_response.content)
+        print("✅ 视频已下载到 output.mp4")
+else:
+    print(f"❌ 处理失败: {result.get('error')}")
+```
+
+#### cURL示例
+
+```bash
+# 配置
+BASE_URL="http://127.0.0.1:7860"
+TOKEN="whisper-api-key-2024"
+
+# 1. 获取模板列表
+curl -X GET "${BASE_URL}/api/batch/templates" \
+  -H "Authorization: Bearer ${TOKEN}"
+
+# 2. 执行模板（JSON格式）
+curl -X POST "${BASE_URL}/api/batch/execute_json" \
+  -H "Authorization: Bearer ${TOKEN}" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "template_name": "奥特曼生日祝福",
+    "parameters": {
+      "username": "小明",
+      "age": 6,
+      "theme": "生日快乐"
+    }
+  }'
+
+# 3. 下载最终视频
+curl -X GET "${BASE_URL}/api/file/download?file_path=output/job_xxx/final_video.mp4" \
+  -H "Authorization: Bearer ${TOKEN}" \
+  -o output.mp4
+```
+
+### 任务执行结果说明
+
+每个任务的执行结果包含以下字段：
+
+- `index`: 任务序号
+- `id`: 任务ID
+- `name`: 任务名称
+- `type`: 任务类型（tts/subtitle/image_process/video_editor/video_transition/video_merge）
+- `status`: 任务状态（success/failed）
+- `error`: 错误信息（如果失败）
+- `output_files`: 输出文件列表
+
+### 错误处理
+
+API返回以下HTTP状态码：
+
+- `200 OK`: 请求成功
+- `400 Bad Request`: 请求参数错误
+- `401 Unauthorized`: 认证失败
+- `404 Not Found`: 模板不存在
+- `500 Internal Server Error`: 服务器内部错误
+
+错误响应示例：
+```json
+{
+  "detail": "模板不存在: xxx"
+}
+```
+
+### 注意事项
+
+1. **认证**：所有API接口都需要通过JWT token或固定token认证
+2. **文件大小**：上传的文件大小限制为50MB
+3. **图片数量**：最多支持6张用户图片
+4. **异步处理**：模板执行是异步的，可能需要较长时间
+5. **文件路径**：使用路径方式时，确保文件路径可访问
+6. **最终视频**：API会自动提取并返回最终生成的视频文件路径
+
 ## 故障排除
 
 ### 常见问题
@@ -502,4 +842,3 @@ MAX_FILE_SIZE = 50 * 1024 * 1024  # 50MB
 - 初始版本
 - 基础 Whisper 语音转文字服务
 - FastAPI REST API
-
