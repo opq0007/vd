@@ -6,10 +6,12 @@ API 路由模块
 
 from .auth import AuthService, verify_token, get_current_user
 from .routes import register_routes
+from .response_formatter import response_formatter
 
 __all__ = [
     'AuthService',
     'verify_token',
     'get_current_user',
-    'register_routes'
+    'register_routes',
+    'response_formatter'
 ]

@@ -54,6 +54,10 @@ class SubtitleModule:
         # LLM 字幕纠错配置
         enable_llm_correction: bool = False,  # 是否启用 LLM 字幕纠错
         reference_text: Optional[str] = None,  # 参考文本，用于字幕纠错
+        # Whisper 基础参数
+        vad_filter: bool = True,  # 启用 VAD 语音活动检测
+        condition_on_previous_text: bool = False,  # 不依赖前文分段
+        temperature: float = 0.0,  # 温度参数
         # 字幕显示后处理配置
         max_chars_per_line: int = 20,  # 每行最大字符数
         max_lines_per_segment: int = 2,  # 每段最大行数
@@ -274,7 +278,10 @@ class SubtitleModule:
                     device=device,
                     beam_size=beam_size,
                     task="transcribe",
-                    word_timestamps=word_timestamps
+                    word_timestamps=word_timestamps,
+                    vad_filter=vad_filter,
+                    condition_on_previous_text=condition_on_previous_text,
+                    temperature=temperature
                 )
 
             # 生成字幕文件
@@ -369,7 +376,10 @@ class SubtitleModule:
                         device=device,
                         beam_size=beam_size,
                         task="translate",
-                        word_timestamps=word_timestamps
+                        word_timestamps=word_timestamps,
+                        vad_filter=vad_filter,
+                        condition_on_previous_text=condition_on_previous_text,
+                        temperature=temperature
                     )
                     bilingual_srt_path = job_dir / f"{out_basename}_bilingual.srt"
                     SubtitleGenerator.write_srt(
