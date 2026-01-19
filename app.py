@@ -31,7 +31,8 @@ from modules import (
     whisper_service,
     tts_onnx_module,
     subtitle_module,
-    transition_module
+    transition_module,
+    image_processing_module
 )
 
 # 导入 API 路由
@@ -45,7 +46,9 @@ from ui import (
     create_subtitle_interface,
     create_transition_interface,
     create_video_editor_interface,
-    create_video_merge_interface
+    create_video_merge_interface,
+    create_image_processing_interface,
+    create_batch_processing_interface
 )
 
 # 初始化日志
@@ -108,6 +111,10 @@ def create_gradio_interface():
             with gr.TabItem("高级字幕生成"):
                 create_subtitle_interface()
 
+            # 图像处理标签页
+            with gr.TabItem("🖼️ 图像处理"):
+                create_image_processing_interface()
+
             # 自动剪辑标签页
             with gr.TabItem("✂️ 自动剪辑"):
                 create_video_editor_interface()
@@ -119,6 +126,10 @@ def create_gradio_interface():
             # 视频合并标签页
             with gr.TabItem("🔗 视频合并"):
                 create_video_merge_interface()
+
+            # 综合处理标签页
+            with gr.TabItem("🚀 综合处理"):
+                create_batch_processing_interface()
 
             # API文档标签页
             with gr.TabItem("API文档"):
@@ -160,6 +171,11 @@ def create_gradio_interface():
 - `POST /api/transition/apply` - 应用转场效果
 - `GET /api/transition/list` - 获取转场效果列表
 - `GET /api/transition/params/{transition_name}` - 获取转场参数
+
+#### 图像处理
+- `POST /api/image/remove_background` - 去除图片背景
+- `POST /api/image/blend` - 图片混合（支持位置、缩放、直接指定宽高、自动去背景）
+- `GET /api/image/model_info` - 获取图像处理模型信息
 
 #### 视频合并
 - `POST /api/video_merge/merge` - 合并多个视频文件
@@ -228,6 +244,7 @@ async def root():
                 <ul>
                     <li>🎤 语音合成 - 基于 VoxCPM 的高质量语音合成</li>
                     <li>📝 字幕生成 - 自动生成视频字幕，支持翻译和烧录</li>
+                    <li>🖼️ 图像处理 - 图片去背景、图片混合等图像处理功能</li>
                     <li>🎬 视频转场 - 多种专业视频转场效果</li>
                     <li>🔗 视频合并 - 合并多个视频文件为一个视频</li>
                     <li>🔊 语音识别 - 基于 faster-whisper 的高性能语音识别</li>

@@ -8,6 +8,7 @@ from abc import ABC, abstractmethod
 from typing import List, Tuple, Dict, Any, Optional
 import numpy as np
 import torch
+import cv2
 from pathlib import Path
 
 
@@ -66,7 +67,7 @@ class BaseTransition(ABC):
         return torch.stack(frames)
     
     def tensor_to_numpy(self, tensor: torch.Tensor) -> np.ndarray:
-        """将tensor转换为numpy数组"""
+        """将tensor转换为numpy数组，确保输出是 3 通道 RGB 图像"""
         if tensor.requires_grad:
             tensor = tensor.detach()
         
@@ -83,6 +84,17 @@ class BaseTransition(ABC):
             numpy_array = (numpy_array * 255).astype(np.uint8)
         else:
             numpy_array = numpy_array.astype(np.uint8)
+        
+        # 确保输出是 3 通道 RGB 图像
+        if len(numpy_array.shape) == 2:
+            # 单通道图像，转换为 3 通道
+            numpy_array = cv2.cvtColor(numpy_array, cv2.COLOR_GRAY2BGR)
+        elif numpy_array.shape[2] == 4:
+            # 4 通道图像（RGBA），转换为 3 通道（RGB）
+            numpy_array = cv2.cvtColor(numpy_array, cv2.COLOR_BGRA2BGR)
+        elif numpy_array.shape[2] != 3:
+            # 其他通道数，使用前 3 个通道
+            numpy_array = numpy_array[:, :, :3]
             
         return numpy_array
     

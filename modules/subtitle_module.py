@@ -29,8 +29,10 @@ class SubtitleModule:
         input_type: str = "upload",
         video_file: Optional[str] = None,
         audio_file: Optional[str] = None,
+        subtitle_file: Optional[str] = None,
         video_path: Optional[str] = None,
         audio_path: Optional[str] = None,
+        subtitle_path: Optional[str] = None,
         model_name: str = "small",
         device: str = "cpu",
         generate_subtitle: bool = True,
@@ -38,6 +40,7 @@ class SubtitleModule:
         word_timestamps: bool = False,
         burn_subtitles: str = "none",
         beam_size: int = 5,
+        subtitle_bottom_margin: int = 50,
         out_basename: Optional[str] = None,
         # 花字配置
         flower_config: Optional[Dict[str, Any]] = None,
@@ -48,7 +51,7 @@ class SubtitleModule:
         # 时长基准配置
         duration_reference: str = "video",  # "video" 或 "audio"，决定以哪个为准
         # 音频语速调整配置
-        adjust_audio_speed: bool = False,  # 是否自动调整音频语速
+        adjust_audio_speed: bool = True,  # 是否自动调整音频语速
         audio_speed_factor: float = 1.0,  # 音频语速调整倍数
         # 音频音量控制配置
         audio_volume: float = 1.0,  # 音频音量倍数（默认1.0，表示原音量）
@@ -57,6 +60,9 @@ class SubtitleModule:
         # LLM 字幕纠错配置
         enable_llm_correction: bool = False,  # 是否启用 LLM 字幕纠错
         reference_text: Optional[str] = None,  # 参考文本，用于字幕纠错
+        # 字幕显示后处理配置
+        max_chars_per_line: int = 20,  # 每行最大字符数
+        max_lines_per_segment: int = 2,  # 每段最大行数
         # 任务目录配置（可选）
         job_dir: Optional[Path] = None  # 可选的任务目录，如果提供则使用该目录
     ) -> Dict[str, Any]:
@@ -67,8 +73,10 @@ class SubtitleModule:
             input_type: 输入类型 (upload/path/separate_audio)
             video_file: 上传的视频文件路径
             audio_file: 上传的音频文件路径
+            subtitle_file: 上传的字幕文件路径
             video_path: 视频文件路径（URL或本地路径）
             audio_path: 音频文件路径（URL或本地路径）
+            subtitle_path: 字幕文件路径（URL或本地路径）
             model_name: Whisper模型名称
             device: 设备类型
             generate_subtitle: 是否生成字幕
@@ -76,6 +84,7 @@ class SubtitleModule:
             word_timestamps: 是否包含词级时间戳
             burn_subtitles: 字幕烧录类型 (none/hard/soft)
             beam_size: beam search 大小
+            subtitle_bottom_margin: 字幕下沿距离（像素）
             out_basename: 输出文件名前缀
             flower_config: 花字配置
             image_config: 插图配置
@@ -107,6 +116,7 @@ class SubtitleModule:
             # 处理输入文件
             local_input = None  # 视频文件路径
             audio_input = None  # 音频文件路径
+            local_subtitle = None  # 字幕文件路径
 
             if input_type == "upload":
                 # 处理上传文件 - Gradio返回的格式可能是：
@@ -154,6 +164,14 @@ class SubtitleModule:
                         shutil.copy2(audio_file, audio_input)
                         Logger.info(f"复制音频文件: {audio_file} -> {audio_input}")
 
+                # 处理字幕文件
+                if subtitle_file:
+                    if isinstance(subtitle_file, str):
+                        subtitle_file_path = Path(subtitle_file)
+                        local_subtitle = job_dir / subtitle_file_path.name
+                        shutil.copy2(subtitle_file, local_subtitle)
+                        Logger.info(f"复制字幕文件: {subtitle_file} -> {local_subtitle}")
+
                 # 验证至少有一个输入文件
                 if not local_input and not audio_input:
                     Logger.warning("Upload模式: video_file和audio_file都为空！")
@@ -172,6 +190,11 @@ class SubtitleModule:
                 if audio_path:
                     audio_input = FileUtils.process_path_input(audio_path, job_dir)
                     Logger.info(f"处理音频路径: {audio_path} -> {audio_input}")
+
+                # 处理字幕文件
+                if subtitle_path:
+                    local_subtitle = FileUtils.process_path_input(subtitle_path, job_dir)
+                    Logger.info(f"处理字幕路径: {subtitle_path} -> {local_subtitle}")
 
                 # 验证至少有一个输入文件
                 if not local_input and not audio_input:
@@ -230,8 +253,12 @@ class SubtitleModule:
             # 准备音频文件用于转录
             audio_for_transcription = None
             if generate_subtitle:
-                # 优先使用调整后的音频进行转录
-                if adjusted_audio_for_transcription:
+                # 优先级：字幕文件 > 音频文件 > 视频文件
+                if local_subtitle:
+                    # 有字幕文件，直接使用，不进行语音识别
+                    Logger.info("使用上传的字幕文件，跳过语音识别")
+                    audio_for_transcription = None  # 不需要音频转录
+                elif adjusted_audio_for_transcription:
                     audio_for_transcription = adjusted_audio_for_transcription
                     Logger.info("使用调整后的音频进行语音识别，确保字幕时间轴与视频同步")
                 elif audio_input:
@@ -244,7 +271,7 @@ class SubtitleModule:
 
             # 转录音频
             segments = None
-            if generate_subtitle and audio_for_transcription:
+            if generate_subtitle and audio_for_transcription and not local_subtitle:
                 segments = await whisper_service.transcribe_advanced(
                     audio_for_transcription,
                     model_name=model_name,
@@ -258,7 +285,17 @@ class SubtitleModule:
             srt_path = None
             bilingual_srt_path = None
 
-            if segments and generate_subtitle:
+            if local_subtitle:
+                # 使用上传的字幕文件
+                srt_path = local_subtitle
+                Logger.info(f"使用上传的字幕文件: {srt_path}")
+                
+                # 如果需要双语字幕，尝试翻译
+                if bilingual:
+                    # TODO: 实现字幕翻译功能
+                    Logger.info("双语字幕功能暂未实现")
+            elif segments and generate_subtitle:
+                # 从语音识别生成字幕
                 # LLM 字幕纠错
                 if enable_llm_correction and reference_text and reference_text.strip():
                     try:
@@ -287,6 +324,40 @@ class SubtitleModule:
 
                     except Exception as e:
                         Logger.error(f"LLM 字幕纠错失败: {e}")
+                        import traceback
+                        Logger.error(traceback.format_exc())
+
+                # 字幕显示后处理：智能分割过长的字幕段
+                if max_chars_per_line > 0 or max_lines_per_segment > 0:
+                    Logger.info("开始字幕显示后处理...")
+                    try:
+                        # 将 segments 转换为 SubtitleSegment 对象
+                        subtitle_segments = []
+                        for seg in segments:
+                            # 检查 seg 是字典还是对象
+                            if isinstance(seg, dict):
+                                subtitle_segments.append(
+                                    SubtitleSegment(start=seg['start'], end=seg['end'], text=seg.get('text', ''))
+                                )
+                            elif hasattr(seg, 'start') and hasattr(seg, 'end') and hasattr(seg, 'text'):
+                                # 已经是 SubtitleSegment 对象
+                                subtitle_segments.append(seg)
+                            else:
+                                Logger.warning(f"未知的 segment 格式: {type(seg)}")
+                        
+                        # 调用字幕显示后处理
+                        processed_segments = SubtitleGenerator.split_long_segments(
+                            subtitle_segments,
+                            max_chars_per_line=max_chars_per_line,
+                            max_lines_per_segment=max_lines_per_segment
+                        )
+                        
+                        # 保持 SubtitleSegment 对象格式
+                        segments = processed_segments
+                        
+                        Logger.info(f"字幕显示后处理完成: 原始 {len(subtitle_segments)} 段 → 处理后 {len(segments)} 段")
+                    except Exception as e:
+                        Logger.error(f"字幕显示后处理失败: {e}")
                         import traceback
                         Logger.error(traceback.format_exc())
 
@@ -358,7 +429,7 @@ class SubtitleModule:
 
                 try:
                     Logger.info(f"开始烧录硬字幕: {base_video} + {srt_to_use} -> {hardsub_video}")
-                    MediaProcessor.burn_hardsub(base_video, srt_to_use, hardsub_video)
+                    MediaProcessor.burn_hardsub(base_video, srt_to_use, hardsub_video, subtitle_bottom_margin)
                     video_output = hardsub_video
                     Logger.info(f"硬字幕视频生成成功: {video_output}")
                 except Exception as e:
@@ -381,9 +452,11 @@ class SubtitleModule:
             if bilingual_srt_path and bilingual_srt_path.exists():
                 result["bilingual_subtitle_path"] = str(bilingual_srt_path)
             if video_output and video_output.exists():
+                result["video_output_path"] = str(video_output)
                 result["video_with_subtitle_path"] = str(video_output)
             elif base_video and base_video.exists():
                 # 如果video_output不存在但base_video存在，返回base_video
+                result["video_output_path"] = str(base_video)
                 result["video_with_subtitle_path"] = str(base_video)
 
             if segments:

@@ -18,6 +18,7 @@ from modules.tts_onnx_module import tts_onnx_module
 from modules.subtitle_module import subtitle_module
 from modules.transition_module import transition_module
 from modules.video_editor_module import video_editor_module
+from modules.image_processing_module import image_processing_module
 from utils.logger import Logger
 from utils.media_processor import MediaProcessor
 
@@ -379,8 +380,10 @@ def register_routes(app) -> None:
         input_type: str = Form("upload"),
         video_file: UploadFile = File(None),
         audio_file: UploadFile = File(None),
+        subtitle_file: UploadFile = File(None),
         video_path: str = Form(None),
         audio_path: str = Form(None),
+        subtitle_path: str = Form(None),
         model_name: str = Form("small"),
         device: str = Form("cpu"),
         generate_subtitle: bool = Form(True),
@@ -388,12 +391,17 @@ def register_routes(app) -> None:
         word_timestamps: bool = Form(False),
         burn_subtitles: str = Form("none"),
         beam_size: int = Form(5),
+        subtitle_bottom_margin: int = Form(20),
         out_basename: str = Form(None),
         # 花字配置
         flower_text: str = Form(None),
         flower_font: str = Form("Microsoft YaHei"),
-        flower_size: int = Form(40),
+        flower_size: int = Form(75),
+        flower_color_mode: str = Form("单色"),
         flower_color: str = Form("#FFFFFF"),
+        flower_gradient_type: str = Form("水平渐变"),
+        flower_color_start: str = Form("#FF0000"),
+        flower_color_end: str = Form("#0000FF"),
         flower_x: int = Form(100),
         flower_y: int = Form(100),
         flower_timing_type: str = Form("时间戳范围"),
@@ -404,6 +412,11 @@ def register_routes(app) -> None:
         flower_stroke_enabled: bool = Form(False),
         flower_stroke_color: str = Form("#000000"),
         flower_stroke_width: int = Form(2),
+        flower_animation_enabled: bool = Form(False),
+        flower_animation_type: str = Form("无效果"),
+        flower_animation_speed: float = Form(1.0),
+        flower_animation_amplitude: float = Form(20.0),
+        flower_animation_direction: str = Form("left"),
         # 插图配置
         image_path: str = Form(None),
         image_x: int = Form(200),
@@ -432,10 +445,17 @@ def register_routes(app) -> None:
         # 原音频保留配置
         keep_original_audio: bool = Form(True),
         # LLM 字幕纠错配置
-        enable_llm_correction: bool = Form(False),
-        reference_text: str = Form(None),
-        payload: Dict[str, Any] = Depends(verify_token)
-    ) -> Dict[str, Any]:
+                enable_llm_correction: bool = Form(False),
+                reference_text: str = Form(None),
+                # Whisper 基础参数
+                vad_filter: bool = Form(True),
+                condition_on_previous_text: bool = Form(False),
+                temperature: float = Form(0.0),
+                # 字幕显示参数（后处理）
+                max_chars_per_line: int = Form(20),
+                max_lines_per_segment: int = Form(2),
+        
+                payload: Dict[str, Any] = Depends(verify_token)    ) -> Dict[str, Any]:
         """
         生成视频字幕（高级版）
 
@@ -443,8 +463,10 @@ def register_routes(app) -> None:
             input_type: 输入类型 (upload/path)
             video_file: 上传的视频文件
             audio_file: 上传的音频文件
+            subtitle_file: 上传的字幕文件
             video_path: 视频文件路径
             audio_path: 音频文件路径
+            subtitle_path: 字幕文件路径
             model_name: 模型名称
             device: 设备类型
             generate_subtitle: 是否生成字幕
@@ -452,6 +474,7 @@ def register_routes(app) -> None:
             word_timestamps: 是否包含词级时间戳
             burn_subtitles: 字幕烧录类型 (none/hard)
             beam_size: beam search 大小
+            subtitle_bottom_margin: 字幕下沿距离（像素，默认0）
             out_basename: 输出文件名前缀
             flower_text: 花字文字
             flower_font: 花字字体
@@ -492,6 +515,11 @@ def register_routes(app) -> None:
             keep_original_audio: 是否保留原视频音频（默认True，保留并混合；False则替换原音频）
             enable_llm_correction: 是否启用 LLM 字幕纠错（使用智谱 AI）
             reference_text: 参考文本，用于字幕纠错
+            vad_filter: 启用 VAD 语音活动检测（默认True）
+            condition_on_previous_text: 不依赖前文分段（默认False），产生更自然的分段
+            temperature: 温度参数（默认0.0），控制预测的随机性
+            max_chars_per_line: 字幕每行最大字符数（默认20），超过会自动分割
+            max_lines_per_segment: 字幕每段最大行数（默认2），超过会自动分割
             payload: 认证载荷
 
         Returns:
@@ -503,6 +531,7 @@ def register_routes(app) -> None:
         # 处理上传文件
         video_file_path = None
         audio_file_path = None
+        subtitle_file_path = None
 
         if video_file:
             video_file_path = job_dir / video_file.filename
@@ -514,6 +543,11 @@ def register_routes(app) -> None:
             with open(audio_file_path, "wb") as f:
                 f.write(await audio_file.read())
 
+        if subtitle_file:
+            subtitle_file_path = job_dir / subtitle_file.filename
+            with open(subtitle_file_path, "wb") as f:
+                f.write(await subtitle_file.read())
+
         # 准备花字配置
         flower_config = None
         if flower_text and flower_text.strip():
@@ -521,7 +555,11 @@ def register_routes(app) -> None:
                 'text': flower_text,
                 'font': flower_font,
                 'size': flower_size,
+                'color_mode': flower_color_mode,
                 'color': flower_color,
+                'gradient_type': flower_gradient_type,
+                'color_start': flower_color_start,
+                'color_end': flower_color_end,
                 'x': flower_x,
                 'y': flower_y,
                 'timing_type': flower_timing_type,
@@ -531,7 +569,12 @@ def register_routes(app) -> None:
                 'end_time': flower_end_time,
                 'stroke_enabled': flower_stroke_enabled,
                 'stroke_color': flower_stroke_color,
-                'stroke_width': flower_stroke_width
+                'stroke_width': flower_stroke_width,
+                'animation_enabled': flower_animation_enabled,
+                'animation_type': flower_animation_type,
+                'animation_speed': flower_animation_speed,
+                'animation_amplitude': flower_animation_amplitude,
+                'animation_direction': flower_animation_direction
             }
 
         # 准备插图配置
@@ -572,8 +615,10 @@ def register_routes(app) -> None:
             input_type=input_type,
             video_file=str(video_file_path) if video_file_path else None,
             audio_file=str(audio_file_path) if audio_file_path else None,
+            subtitle_file=str(subtitle_file_path) if subtitle_file_path else None,
             video_path=video_path,
             audio_path=audio_path,
+            subtitle_path=subtitle_path,
             model_name=model_name,
             device=device,
             generate_subtitle=generate_subtitle,
@@ -581,6 +626,7 @@ def register_routes(app) -> None:
             word_timestamps=word_timestamps,
             burn_subtitles=burn_subtitles,
             beam_size=beam_size,
+            subtitle_bottom_margin=subtitle_bottom_margin,
             out_basename=out_basename,
             flower_config=flower_config,
             image_config=image_config,
@@ -589,6 +635,13 @@ def register_routes(app) -> None:
             keep_original_audio=keep_original_audio,
             enable_llm_correction=enable_llm_correction,
             reference_text=reference_text,
+            # Whisper 基础参数
+            vad_filter=vad_filter,
+            condition_on_previous_text=condition_on_previous_text,
+            temperature=temperature,
+            # 字幕显示参数（后处理）
+            max_chars_per_line=max_chars_per_line,
+            max_lines_per_segment=max_lines_per_segment,
             job_dir=job_dir  # 传递 job_dir，确保在同一个目录下处理
         )
 
@@ -843,7 +896,11 @@ def register_routes(app) -> None:
                 'text': flower_text,
                 'font': flower_font,
                 'size': flower_size,
+                'color_mode': flower_color_mode,
                 'color': flower_color,
+                'gradient_type': flower_gradient_type,
+                'color_start': flower_color_start,
+                'color_end': flower_color_end,
                 'x': flower_x,
                 'y': flower_y,
                 'timing_type': flower_timing_type,
@@ -853,7 +910,12 @@ def register_routes(app) -> None:
                 'end_time': flower_end_time,
                 'stroke_enabled': flower_stroke_enabled,
                 'stroke_color': flower_stroke_color,
-                'stroke_width': flower_stroke_width
+                'stroke_width': flower_stroke_width,
+                'animation_enabled': flower_animation_enabled,
+                'animation_type': flower_animation_type,
+                'animation_speed': flower_animation_speed,
+                'animation_amplitude': flower_animation_amplitude,
+                'animation_direction': flower_animation_direction
             }
 
         # 准备插图配置
@@ -986,6 +1048,13 @@ def register_routes(app) -> None:
         reference_text: str = Form(None),
         burn_subtitles: str = Form("hard"),
         out_basename: str = Form(None),
+        # Whisper 基础参数
+        vad_filter: bool = Form(True),
+        condition_on_previous_text: bool = Form(False),
+        temperature: float = Form(0.0),
+        # 字幕显示参数（后处理）
+        max_chars_per_line: int = Form(20),
+        max_lines_per_segment: int = Form(2),
         payload: Dict[str, Any] = Depends(verify_token)
     ) -> Dict[str, Any]:
         """
@@ -1010,6 +1079,11 @@ def register_routes(app) -> None:
             reference_text: 参考文本，用于字幕纠错
             burn_subtitles: 字幕烧录类型 (none/hard)
             out_basename: 输出文件名前缀
+            vad_filter: 启用 VAD 语音活动检测（默认True）
+            condition_on_previous_text: 不依赖前文分段（默认False），产生更自然的分段
+            temperature: 温度参数（默认0.0），控制预测的随机性
+            max_chars_per_line: 字幕每行最大字符数（默认20），超过会自动分割
+            max_lines_per_segment: 字幕每段最大行数（默认2），超过会自动分割
             payload: 认证载荷
 
         Returns:
@@ -1050,7 +1124,14 @@ def register_routes(app) -> None:
                 audio_volume=audio_volume,
                 keep_original_audio=keep_original_audio,
                 enable_llm_correction=enable_llm_correction,
-                reference_text=reference_text
+                reference_text=reference_text,
+                # Whisper 基础参数
+                vad_filter=vad_filter,
+                condition_on_previous_text=condition_on_previous_text,
+                temperature=temperature,
+                # 字幕显示参数（后处理）
+                max_chars_per_line=max_chars_per_line,
+                max_lines_per_segment=max_lines_per_segment
             )
 
             Logger.info(f"一站式处理完成: {result.get('out_basename', 'unknown')}")
@@ -1080,6 +1161,13 @@ def register_routes(app) -> None:
         keep_original_audio: bool = Form(False),
         enable_llm_correction: bool = Form(True),
         burn_subtitles: str = Form("hard"),
+        # Whisper 基础参数
+        vad_filter: bool = Form(True),
+        condition_on_previous_text: bool = Form(False),
+        temperature: float = Form(0.0),
+        # 字幕显示参数（后处理）
+        max_chars_per_line: int = Form(20),
+        max_lines_per_segment: int = Form(2),
         out_basename: str = Form(None),
         payload: Dict[str, Any] = Depends(verify_token)
     ) -> Dict[str, Any]:
@@ -1108,6 +1196,11 @@ def register_routes(app) -> None:
             enable_llm_correction: 是否启用LLM字幕纠错（默认True）
             burn_subtitles: 字幕烧录类型 (none/hard，默认hard)
             out_basename: 输出文件名前缀
+            vad_filter: 启用 VAD 语音活动检测（默认True）
+            condition_on_previous_text: 不依赖前文分段（默认False），产生更自然的分段
+            temperature: 温度参数（默认0.0），控制预测的随机性
+            max_chars_per_line: 字幕每行最大字符数（默认20），超过会自动分割
+            max_lines_per_segment: 字幕每段最大行数（默认2），超过会自动分割
             payload: 认证载荷
 
         Returns:
@@ -1179,6 +1272,13 @@ def register_routes(app) -> None:
                 keep_original_audio=keep_original_audio,
                 enable_llm_correction=enable_llm_correction,
                 reference_text=text_content,  # 使用输入的文本内容作为参考文本
+                # Whisper 基础参数
+                vad_filter=vad_filter,
+                condition_on_previous_text=condition_on_previous_text,
+                temperature=temperature,
+                # 字幕显示参数（后处理）
+                max_chars_per_line=max_chars_per_line,
+                max_lines_per_segment=max_lines_per_segment,
                 job_dir=job_dir  # 传递 job_dir，确保在同一个目录下处理
             )
             
@@ -1247,11 +1347,153 @@ def register_routes(app) -> None:
             Logger.error(traceback.format_exc())
             raise HTTPException(status_code=500, detail=f"处理失败: {str(e)}")
 
+    # ==================== 图像处理 ====================
+    @api_router.post("/image/remove_background")
+    async def remove_background(
+        input_type: str = Form("upload"),
+        image: UploadFile = File(None),
+        image_path: str = Form(None),
+        payload: Dict[str, Any] = Depends(verify_token)
+    ) -> Dict[str, Any]:
+        """
+        去除图片背景
+
+        Args:
+            input_type: 输入类型 (upload/path)
+            image: 图片文件（upload模式）
+            image_path: 图片文件路径（path模式，支持URL或本地路径）
+            payload: 认证载荷
+
+        Returns:
+            Dict[str, Any]: 去背景结果
+        """
+        from utils.file_utils import FileUtils
+        job_dir = FileUtils.create_job_dir()
+
+        actual_image_path = None
+
+        if input_type == "upload":
+            if not image:
+                raise HTTPException(status_code=400, detail="请上传图片文件")
+            image_file_path = job_dir / image.filename
+            with open(image_file_path, "wb") as f:
+                f.write(await image.read())
+            actual_image_path = str(image_file_path)
+        else:  # path
+            if not image_path or not image_path.strip():
+                raise HTTPException(status_code=400, detail="请提供图片文件路径")
+            actual_image_path = image_path
+
+        result = await image_processing_module.remove_background(
+            image_path=actual_image_path,
+            input_type=input_type,
+            job_dir=job_dir
+        )
+
+        return result
+
+    @api_router.post("/image/blend")
+    async def blend_images(
+        input_type: str = Form("upload"),
+        base_image: UploadFile = File(None),
+        overlay_image: UploadFile = File(None),
+        base_image_path: str = Form(None),
+        overlay_image_path: str = Form(None),
+        position_x: int = Form(85),
+        position_y: int = Form(90),
+        scale: float = Form(1.0),
+        width: int = Form(425),
+        height: int = Form(615),
+        remove_bg: bool = Form(False),
+        payload: Dict[str, Any] = Depends(verify_token)
+    ) -> Dict[str, Any]:
+        """
+        图片混合：将第二张图片叠加到第一张图片上
+
+        Args:
+            input_type: 输入类型 (upload/path)
+            base_image: 基础图片（upload模式）
+            overlay_image: 叠加图片（upload模式）
+            base_image_path: 基础图片路径（path模式，支持URL或本地路径）
+            overlay_image_path: 叠加图片路径（path模式，支持URL或本地路径）
+            position_x: X坐标
+            position_y: Y坐标
+            scale: 缩放比例（当width和height都为0时使用）
+            width: 宽度（直接指定，优先级高于scale，0表示不指定）
+            height: 高度（直接指定，优先级高于scale，0表示不指定）
+            remove_bg: 是否去除叠加图片的背景
+            payload: 认证载荷
+
+        Returns:
+            Dict[str, Any]: 混合结果
+        """
+        from utils.file_utils import FileUtils
+        job_dir = FileUtils.create_job_dir()
+
+        actual_base_path = None
+        actual_overlay_path = None
+
+        if input_type == "upload":
+            if not base_image or not overlay_image:
+                raise HTTPException(status_code=400, detail="请上传两张图片文件")
+            
+            base_image_file_path = job_dir / base_image.filename
+            overlay_image_file_path = job_dir / overlay_image.filename
+
+            with open(base_image_file_path, "wb") as f:
+                f.write(await base_image.read())
+
+            with open(overlay_image_file_path, "wb") as f:
+                f.write(await overlay_image.read())
+
+            actual_base_path = str(base_image_file_path)
+            actual_overlay_path = str(overlay_image_file_path)
+        else:  # path
+            if not base_image_path or not base_image_path.strip() or not overlay_image_path or not overlay_image_path.strip():
+                raise HTTPException(status_code=400, detail="请提供两张图片的文件路径")
+            actual_base_path = base_image_path
+            actual_overlay_path = overlay_image_path
+
+        # 处理宽高参数（0表示不指定）
+        width_param = width if width > 0 else None
+        height_param = height if height > 0 else None
+
+        result = await image_processing_module.blend_images(
+            base_image_path=actual_base_path,
+            overlay_image_path=actual_overlay_path,
+            input_type=input_type,
+            position_x=position_x,
+            position_y=position_y,
+            scale=scale,
+            width=width_param,
+            height=height_param,
+            remove_bg=remove_bg,
+            job_dir=job_dir
+        )
+
+        return result
+
+    @api_router.get("/image/model_info")
+    async def get_image_model_info(
+        payload: Dict[str, Any] = Depends(verify_token)
+    ) -> Dict[str, Any]:
+        """
+        获取图像处理模型信息
+
+        Args:
+            payload: 认证载荷
+
+        Returns:
+            Dict[str, Any]: 模型信息
+        """
+        return await image_processing_module.get_model_info()
+
     # ==================== 视频合并 ====================
     @api_router.post("/video_merge/merge")
     async def merge_videos(
         video_paths: str = Form(...),
         out_basename: str = Form(None),
+        delete_intermediate_videos: bool = Form(True),
         payload: Dict[str, Any] = Depends(verify_token)
     ) -> Dict[str, Any]:
         """
@@ -1260,6 +1502,7 @@ def register_routes(app) -> None:
         Args:
             video_paths: 视频文件路径列表，用换行符分隔
             out_basename: 输出文件名前缀
+            delete_intermediate_videos: 是否删除中间视频文件（默认为True）
             payload: 认证载荷
 
         Returns:
@@ -1271,7 +1514,8 @@ def register_routes(app) -> None:
             # 执行视频合并
             result = await video_merge_module.merge_videos(
                 video_paths=video_paths,
-                out_basename=out_basename
+                out_basename=out_basename,
+                delete_intermediate_videos=delete_intermediate_videos
             )
 
             return result

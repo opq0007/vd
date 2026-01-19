@@ -26,7 +26,9 @@ class VideoMergeModule:
         video_paths: str,
         out_basename: Optional[str] = None,
         # 任务目录配置（可选）
-        job_dir: Optional[Path] = None
+        job_dir: Optional[Path] = None,
+        # 是否删除中间视频文件
+        delete_intermediate_videos: bool = True
     ) -> Dict[str, Any]:
         """
         合并多个视频文件
@@ -35,6 +37,7 @@ class VideoMergeModule:
             video_paths: 视频文件路径列表，用换行符分隔
             out_basename: 输出文件名前缀
             job_dir: 可选的任务目录，如果提供则使用该目录
+            delete_intermediate_videos: 是否删除中间视频文件（默认为True）
 
         Returns:
             Dict[str, Any]: 合并结果
@@ -93,16 +96,23 @@ class VideoMergeModule:
             output_path = job_dir / f"{out_basename}.mp4"
 
             # 使用 FFmpeg concat demuxer 合并视频
-            await self._merge_videos_with_ffmpeg(local_video_paths, output_path)
+            await self._merge_videos_with_ffmpeg(
+                local_video_paths, 
+                output_path,
+                delete_intermediate_videos=delete_intermediate_videos
+            )
 
-            # 合并成功后，删除复制到任务目录的子视频文件以节省磁盘空间
-            for video_path in local_video_paths:
-                try:
-                    if video_path.exists() and video_path != output_path:
-                        video_path.unlink()
-                        Logger.info(f"已删除子视频文件: {video_path}")
-                except Exception as e:
-                    Logger.warning(f"删除子视频文件失败: {video_path}, 错误: {e}")
+            # 合并成功后，根据配置删除复制到任务目录的子视频文件
+            if delete_intermediate_videos:
+                for video_path in local_video_paths:
+                    try:
+                        if video_path.exists() and video_path != output_path:
+                            video_path.unlink()
+                            Logger.info(f"已删除子视频文件: {video_path}")
+                    except Exception as e:
+                        Logger.warning(f"删除子视频文件失败: {video_path}, 错误: {e}")
+            else:
+                Logger.info(f"保留中间视频文件，共 {len(local_video_paths)} 个文件")
 
             # 构建结果
             result = {
@@ -128,7 +138,8 @@ class VideoMergeModule:
     async def _merge_videos_with_ffmpeg(
         self,
         video_paths: List[Path],
-        output_path: Path
+        output_path: Path,
+        delete_intermediate_videos: bool = True
     ) -> None:
         """
         使用 FFmpeg concat demuxer 合并视频
@@ -136,13 +147,14 @@ class VideoMergeModule:
         Args:
             video_paths: 视频文件路径列表
             output_path: 输出视频文件路径
+            delete_intermediate_videos: 是否删除中间视频文件
         """
         from utils.system_utils import SystemUtils
 
         ffmpeg_path = SystemUtils.get_ffmpeg_path()
 
-        # 标准化所有视频的音频参数（采样率、声道等）
-        Logger.info("开始标准化视频音频参数...")
+        # 标准化所有视频的音频和视频参数（采样率、声道、分辨率、帧率、编码格式等）
+        Logger.info("开始标准化视频参数（音频+视频）...")
         normalized_paths = await self._normalize_video_audio(video_paths, output_path.parent)
         Logger.info(f"视频标准化完成，共 {len(normalized_paths)} 个文件")
 
@@ -165,11 +177,11 @@ class VideoMergeModule:
             "-f", "concat",
             "-safe", "0",  # 允许使用任意路径
             "-i", str(concat_list_file),
-            "-c", "copy",  # 直接复制流，不重新编码
+            "-c", "copy",  # 直接复制流，因为所有视频参数已经标准化
             str(output_path)
         ]
 
-        Logger.info(f"执行视频合并命令: {' '.join(cmd)}")
+        Logger.info(f"执行视频合并命令（直接复制流）: {' '.join(cmd)}")
 
         # 执行命令
         original_cwd = os.getcwd()
@@ -187,16 +199,21 @@ class VideoMergeModule:
         finally:
             os.chdir(original_cwd)
 
-            # 删除临时文件
-            if concat_list_file.exists():
-                concat_list_file.unlink()
-                Logger.info(f"删除临时文件: {concat_list_file}")
+        # 删除临时文件
+        if concat_list_file.exists():
+            concat_list_file.unlink()
+            Logger.info(f"删除临时文件: {concat_list_file}")
 
-            # 删除标准化后的临时文件
-            for norm_path in normalized_paths:
-                if norm_path != output_path and norm_path.exists():
+        # 只删除真正被标准化的临时文件，不要删除原始文件
+        # 通过检查文件名是否以 "normalized_" 开头来判断
+        for norm_path in normalized_paths:
+            if norm_path != output_path and norm_path.exists():
+                # 只删除以 "normalized_" 开头的临时文件
+                if norm_path.name.startswith("normalized_"):
                     norm_path.unlink()
                     Logger.info(f"删除临时标准化文件: {norm_path}")
+                else:
+                    Logger.debug(f"保留原始文件: {norm_path}")
 
     async def _normalize_video_audio(
         self,
@@ -218,48 +235,51 @@ class VideoMergeModule:
         ffmpeg_path = SystemUtils.get_ffmpeg_path()
         normalized_paths = []
 
-        # 标准化参数：使用常见的音频参数
+        # 标准化参数：使用常见的音频和视频参数
         target_sample_rate = 44100  # 标准采样率
         target_channels = 2  # 立体声
+        target_fps = 25  # 标准帧率
+        target_width = 1920  # 标准宽度
+        target_height = 1080  # 标准高度
 
         for i, video_path in enumerate(video_paths):
             try:
-                # 检查是否需要标准化
-                needs_normalization = await self._needs_audio_normalization(video_path)
+                Logger.info(f"标准化视频 {i+1}/{len(video_paths)}: {video_path.name}")
 
-                if needs_normalization:
-                    Logger.info(f"视频 {i+1}/{len(video_paths)} 需要音频标准化: {video_path.name}")
+                # 创建标准化后的文件路径
+                normalized_path = output_dir / f"normalized_{i}_{video_path.name}"
 
-                    # 创建标准化后的文件路径
-                    normalized_path = output_dir / f"normalized_{i}_{video_path.name}"
+                # 构建FFmpeg命令，重新编码音频和视频到标准参数
+                cmd = [
+                    ffmpeg_path, "-y",
+                    "-i", str(video_path),
+                    # 视频标准化
+                    "-c:v", "libx264",  # 视频使用 H.264 编码
+                    "-preset", "fast",  # 编码速度
+                    "-crf", "23",  # 视频质量
+                    "-pix_fmt", "yuv420p",  # 像素格式，确保兼容性
+                    "-r", str(target_fps),  # 帧率
+                    "-vf", f"scale={target_width}:{target_height}",  # 缩放到标准分辨率
+                    # 音频标准化
+                    "-c:a", "aac",  # 音频使用AAC编码
+                    "-ar", str(target_sample_rate),  # 采样率
+                    "-ac", str(target_channels),  # 声道数
+                    "-b:a", "192k",  # 音频比特率
+                    "-movflags", "+faststart",  # 优化MP4播放
+                    str(normalized_path)
+                ]
 
-                    # 构建FFmpeg命令，重新编码音频到标准参数
-                    cmd = [
-                        ffmpeg_path, "-y",
-                        "-i", str(video_path),
-                        "-c:v", "copy",  # 视频流直接复制
-                        "-c:a", "aac",  # 音频使用AAC编码
-                        "-ar", str(target_sample_rate),  # 采样率
-                        "-ac", str(target_channels),  # 声道数
-                        "-b:a", "192k",  # 音频比特率
-                        "-movflags", "+faststart",  # 优化MP4播放
-                        str(normalized_path)
-                    ]
+                Logger.info(f"执行标准化命令（音频+视频）: {' '.join(cmd)}")
 
-                    Logger.info(f"执行音频标准化命令: {' '.join(cmd)}")
-
-                    # 执行命令
-                    original_cwd = os.getcwd()
-                    try:
-                        os.chdir(output_dir)
-                        SystemUtils.run_cmd(cmd)
-                        normalized_paths.append(normalized_path)
-                        Logger.info(f"音频标准化完成: {normalized_path}")
-                    finally:
-                        os.chdir(original_cwd)
-                else:
-                    Logger.info(f"视频 {i+1}/{len(video_paths)} 不需要标准化: {video_path.name}")
-                    normalized_paths.append(video_path)
+                # 执行命令
+                original_cwd = os.getcwd()
+                try:
+                    os.chdir(output_dir)
+                    SystemUtils.run_cmd(cmd)
+                    normalized_paths.append(normalized_path)
+                    Logger.info(f"标准化完成: {normalized_path}")
+                finally:
+                    os.chdir(original_cwd)
 
             except Exception as e:
                 Logger.error(f"标准化视频 {video_path} 时出错: {e}")
@@ -289,6 +309,7 @@ class VideoMergeModule:
         # 使用 ffprobe 获取音频信息
         cmd = [
             ffmpeg_path, "-i", str(video_path),
+            "-f", "null", "-",  # 添加 null 输出，避免 FFmpeg 报错
             "-hide_banner"
         ]
 

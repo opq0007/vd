@@ -139,4 +139,11 @@ class Flip3DTransition(BaseTransition):
         M = cv2.getPerspectiveTransform(pts1, pts2)
         result = cv2.warpPerspective(current_frame, M, (width, height), borderMode=cv2.BORDER_REPLICATE)
         
+        # 确保输出是 3 通道 RGB 图像
+        if result.shape[2] == 4:
+            result = cv2.cvtColor(result, cv2.COLOR_BGRA2BGR)
+        elif result.shape[2] != 3:
+            # 如果不是 3 或 4 通道，转换为 3 通道
+            result = cv2.cvtColor(result, cv2.COLOR_GRAY2BGR)
+        
         return self.numpy_to_tensor(result)

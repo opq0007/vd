@@ -1,0 +1,151 @@
+{
+  "name": "奥特曼生日祝福",
+  "description": "奥特曼主题的生日祝福视频模板",
+  "version": "1.0",
+  "character": "atm",
+  "theme": "birthday",
+  "parameters": {
+    "username": {
+      "type": "string",
+      "description": "用户名",
+      "default": "小明"
+    },
+    "age": {
+      "type": "number",
+      "description": "年龄",
+      "default": 6
+    },
+    "theme_text": {
+      "type": "string",
+      "description": "主题文字",
+      "default": "生日快乐"
+    },
+    "tts_text": {
+      "type": "string",
+      "description": "TTS文本内容",
+      "default": ""
+    },
+    "user_images": {
+      "type": "array",
+      "description": "用户图片（0-5张）",
+      "default": []
+    }
+  },
+  "tasks": [
+    {
+      "id": "task1",
+      "name": "语音合成",
+      "type": "tts",
+      "params": {
+        "text": "${tts_text}"
+      }
+    },
+    {
+      "id": "task2",
+      "name": "生成字幕",
+      "type": "subtitle",
+      "params": {
+        "video": "out_4.mp4",
+        "audio": "${task1.output}",
+        "reference_text": "${tts_text}",
+        "enable_llm_correction": true,
+        "max_chars_per_line": 20,
+        "max_lines_per_segment": 2
+      },
+      "depends_on": ["task1"]
+    },
+    {
+      "id": "task3",
+      "name": "混合用户图片",
+      "type": "image_process",
+      "params": {
+        "base_image": "background.png",
+        "overlay_images": "${user_images}",
+        "position_x": 85,
+        "position_y": 90,
+        "width": 425,
+        "height":615,
+        "scale": 1,
+        "remove_bg": false
+      }
+    },
+    {
+      "id": "task4",
+      "name": "视频添加花字",
+      "type": "video_editor",
+      "params": {
+        "input": "out_10.mp4",
+        "text": "${theme_text}！${username}",
+        "font": "华文琥珀.TTF",
+        "size": 75,
+        "color_mode": "gradient",
+        "gradient_type": "diagonal",
+        "color_start": "#87CEEB",
+        "color_end": "#FFFFFF",
+        "x": 100,
+        "y": 100,
+        "animation": {
+          "type": "marquee",
+          "speed": 1.0,
+          "direction": "left"
+        }
+      },
+      "depends_on": []
+    },
+    {
+      "id": "task5",
+      "name": "视频添加角色图片",
+      "type": "video_editor",
+      "params": {
+        "input": "out_9.mp4",
+        "images": "${task3.output[0]}",
+        "x": 735,
+        "y": 480,
+        "width": 450,
+        "height": 600,
+        "remove_bg": false
+      },
+      "depends_on": ["task3"]
+    },
+    {
+      "id": "task6",
+      "name": "为2张图片生成转场效果",
+      "type": "video_transition",
+      "params": {
+        "video1": "background.png",
+        "video2": "${task3.output[0]}",
+        "transition_name": "crossfade",
+        "total_frames": 100,
+        "fps": 25,
+        "width": 600,
+        "height": 800
+      },
+      "depends_on": []
+    },
+    {
+      "id": "task7",
+      "name": "在视频中添加视频",
+      "type": "video_editor",
+      "params": {
+        "input": "out_2_赛罗.mp4",
+        "video_path": "${task6.output}",
+        "video_x": 10,
+        "video_y": 10,
+        "video_width": 450,
+        "video_height": 600
+      },
+      "depends_on": ["task6"]
+    },
+    {
+      "id": "task9",
+      "name": "合并多个视频",
+      "type": "video_merge",
+      "params": {
+        "videos": "out_1_赛罗.mp4\n ${task7.output}\n out_3.mp4\n ${task2.output}\n ${task5.output}\n ${task4.output}",
+        "output_name": "final_video",
+        "delete_intermediate_videos": true
+      },
+      "depends_on": ["task2", "task4", "task5", "task7"]
+    }
+  ]
+}

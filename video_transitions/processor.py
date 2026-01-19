@@ -30,6 +30,8 @@ class TransitionProcessor:
         fps: int = 30,
         width: int = 640,
         height: int = 640,
+        output_dir: Optional[str] = None,  # 可选的输出目录
+        output_basename: Optional[str] = None,  # 可选的输出文件名前缀
         **kwargs
     ) -> Tuple[Optional[str], str]:
         """
@@ -43,6 +45,8 @@ class TransitionProcessor:
             fps: 帧率
             width: 输出宽度
             height: 输出高度
+            output_dir: 可选的输出目录（如果提供，则使用该目录）
+            output_basename: 可选的输出文件名前缀（如果提供，则使用该前缀）
             **kwargs: 其他参数
             
         Returns:
@@ -69,7 +73,7 @@ class TransitionProcessor:
             )
             
             # 保存视频
-            output_path = await self._save_video(result_tensor, fps, width, height)
+            output_path = await self._save_video(result_tensor, fps, width, height, output_dir, output_basename)
             
             return output_path, "转场视频生成成功"
             
@@ -79,6 +83,14 @@ class TransitionProcessor:
     async def _load_media(self, file_path: str, width: int, height: int) -> torch.Tensor:
         """加载媒体文件（视频或图片）"""
         file_path = Path(file_path)
+        
+        # 检查文件是否存在
+        if not file_path.exists():
+            raise FileNotFoundError(f"文件不存在: {file_path}")
+        
+        # 检查是否是目录
+        if file_path.is_dir():
+            raise ValueError(f"路径是目录而不是文件: {file_path}")
         
         if file_path.suffix.lower() in ['.png', '.jpg', '.jpeg']:
             # 加载图片
@@ -125,19 +137,32 @@ class TransitionProcessor:
         tensor: torch.Tensor,
         fps: int,
         width: int,
-        height: int
+        height: int,
+        output_dir: Optional[str] = None,  # 可选的输出目录
+        output_basename: Optional[str] = None  # 可选的输出文件名前缀
     ) -> str:
         """保存视频文件"""
         from datetime import datetime
         from utils.video_utils import VideoUtils
         
+        # 确定输出目录
+        if output_dir:
+            output_dir_path = Path(output_dir)
+        else:
+            # 如果没有提供，使用默认的 output 目录
+            output_dir_path = Path("output")
+        
         # 创建输出目录
-        output_dir = Path("output")
-        output_dir.mkdir(exist_ok=True)
+        output_dir_path.mkdir(parents=True, exist_ok=True)
         
         # 生成文件名
-        timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-        output_path = output_dir / f"transition_{timestamp}.mp4"
+        if output_basename:
+            # 使用提供的前缀
+            output_path = output_dir_path / f"{output_basename}.mp4"
+        else:
+            # 使用默认的命名风格
+            timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+            output_path = output_dir_path / f"transition_{timestamp}.mp4"
         
         # 使用视频工具类创建写入器
         out = VideoUtils.create_video_writer(output_path, width, height, fps)

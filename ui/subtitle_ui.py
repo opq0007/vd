@@ -36,7 +36,11 @@ def create_subtitle_interface() -> gr.Blocks:
                 with gr.Group(visible=True) as upload_group:
                     video_input = gr.Video(label="上传视频文件")
                     audio_input_adv = gr.Audio(label="上传音频文件")
-                    gr.Markdown("*提示：可以同时上传视频和音频文件，或只上传其中一个*")
+                    subtitle_file = gr.File(
+                        label="上传字幕文件（可选）",
+                        file_types=[".srt", ".vtt", ".ass", ".ssa"]
+                    )
+                    gr.Markdown("*提示：可以同时上传视频、音频和字幕文件，或只上传其中部分文件。优先级：字幕文件 > 音频文件 > 视频文件*")
 
                 with gr.Group(visible=False) as path_group:
                     gr.Markdown("#### 📹 视频文件")
@@ -51,7 +55,13 @@ def create_subtitle_interface() -> gr.Blocks:
                         placeholder="输入音频文件的URL或本地路径",
                         info="支持http/https URL或本地文件路径"
                     )
-                    gr.Markdown("*提示：可以同时提供视频和音频文件，或只提供其中一个*")
+                    gr.Markdown("#### 📄 字幕文件")
+                    subtitle_path_input = gr.Textbox(
+                        label="字幕文件路径",
+                        placeholder="输入字幕文件的URL或本地路径",
+                        info="支持http/https URL或本地文件路径，支持 .srt, .vtt, .ass, .ssa 格式"
+                    )
+                    gr.Markdown("*提示：可以同时提供视频、音频和字幕文件，或只提供其中部分文件。优先级：字幕文件 > 音频文件 > 视频文件*")
 
                 # 基础参数配置
                 gr.Markdown("### ⚙️ 字幕参数")
@@ -77,6 +87,48 @@ def create_subtitle_interface() -> gr.Blocks:
                     bilingual = gr.Checkbox(label="双语字幕", value=False)
                     word_timestamps = gr.Checkbox(label="词级时间戳", value=False)
 
+                # Whisper 时间戳分段优化参数
+                gr.Markdown("### 🎯 Whisper 参数")
+                with gr.Row():
+                    vad_filter = gr.Checkbox(
+                        label="启用 VAD 语音活动检测",
+                        value=True,
+                        info="启用后能更准确地检测语音边界"
+                    )
+                    condition_on_previous_text = gr.Checkbox(
+                        label="不依赖前文分段",
+                        value=True,
+                        info="启用后不依赖前文内容，产生更自然的分段"
+                    )
+                    temperature = gr.Slider(
+                        minimum=0.0,
+                        maximum=1.0,
+                        value=0.0,
+                        step=0.1,
+                        label="温度参数",
+                        info="控制预测的随机性，0 表示更保守（推荐），1 表示更随机"
+                    )
+
+                # 字幕显示参数（后处理）
+                gr.Markdown("### 📝 字幕显示参数（后处理）")
+                with gr.Row():
+                    max_chars_per_line = gr.Slider(
+                        minimum=10,
+                        maximum=30,
+                        value=20,
+                        step=2,
+                        label="每行最大字符数",
+                        info="字幕每行显示的最大字符数，超过会自动换行（推荐 20）"
+                    )
+                    max_lines_per_segment = gr.Slider(
+                        minimum=1,
+                        maximum=4,
+                        value=2,
+                        step=1,
+                        label="每段最大行数",
+                        info="每个字幕段的最大行数，超过会自动分割（推荐 2）"
+                    )
+
                 with gr.Row():
                     burn_type = gr.Radio(
                         choices=["none", "hard"],
@@ -89,6 +141,14 @@ def create_subtitle_interface() -> gr.Blocks:
                         value=5,
                         step=1,
                         label="Beam Size"
+                    )
+                    subtitle_bottom_margin = gr.Number(
+                        label="字幕下沿距离（像素）",
+                        value=50,
+                        minimum=0,
+                        maximum=500,
+                        step=1,
+                        info="控制字幕距离视频底边的距离，默认50像素"
                     )
                 
                 # 时长基准选择
@@ -202,7 +262,10 @@ def create_subtitle_interface() -> gr.Blocks:
                 srt_download = gr.File(label="下载SRT字幕文件", visible=False)
                 bilingual_srt_download = gr.File(label="下载双语SRT字幕文件", visible=False)
 
-                gr.Markdown("#### 🎬 视频文件")
+                gr.Markdown("#### 🎬 视频预览")
+                video_preview = gr.Video(label="视频预览", visible=False)
+
+                gr.Markdown("#### 📥 视频文件")
                 video_download = gr.File(label="下载处理后的视频文件", visible=False)
 
                 gr.Markdown("#### 📝 转录文本")
@@ -220,8 +283,10 @@ def create_subtitle_interface() -> gr.Blocks:
                 input_type,
                 video_input,
                 audio_input_adv,
+                subtitle_file,
                 video_path_input,
                 audio_path_input,
+                subtitle_path_input,
                 model_choice_adv,
                 device_choice,
                 generate_subtitle,
@@ -229,13 +294,21 @@ def create_subtitle_interface() -> gr.Blocks:
                 word_timestamps,
                 burn_type,
                 beam_size_adv,
+                subtitle_bottom_margin,
                 duration_reference,
                 adjust_audio_speed,
                 audio_speed_factor,
                 audio_volume,
                 keep_original_audio,
                 enable_llm_correction,
-                reference_text
+                reference_text,
+                # Whisper 基础参数
+                vad_filter,
+                condition_on_previous_text,
+                temperature,
+                # 字幕显示参数（后处理）
+                max_chars_per_line,
+                max_lines_per_segment
             ],
             outputs=[
                 job_id_display,
@@ -243,6 +316,7 @@ def create_subtitle_interface() -> gr.Blocks:
                 result_status,
                 srt_download,
                 bilingual_srt_download,
+                video_preview,
                 video_download,
                 transcript_output
             ]
@@ -255,8 +329,10 @@ async def process_subtitle(
     input_type: str,
     video_file: Optional[str],
     audio_file: Optional[str],
+    subtitle_file: Optional[str],
     video_path: Optional[str],
     audio_path: Optional[str],
+    subtitle_path: Optional[str],
     model_name: str,
     device: str,
     generate_subtitle: bool,
@@ -264,13 +340,21 @@ async def process_subtitle(
     word_timestamps: bool,
     burn_type: str,
     beam_size: int,
+    subtitle_bottom_margin: int,
     duration_reference: str,
     adjust_audio_speed: bool,
     audio_speed_factor: float,
     audio_volume: float,
     keep_original_audio: bool,
     enable_llm_correction: bool,
-    reference_text: Optional[str]
+    reference_text: Optional[str],
+    # Whisper 基础参数
+    vad_filter: bool,
+    condition_on_previous_text: bool,
+    temperature: float,
+    # 字幕显示参数（后处理）
+    max_chars_per_line: int,
+    max_lines_per_segment: int
 ) -> Tuple[str, str, dict, Optional[str], Optional[str], Optional[str], str]:
     """
     处理字幕生成（纯字幕功能）
@@ -279,8 +363,10 @@ async def process_subtitle(
         input_type: 输入类型
         video_file: 上传的视频文件
         audio_file: 上传的音频文件
+        subtitle_file: 上传的字幕文件
         video_path: 视频文件路径
         audio_path: 音频文件路径
+        subtitle_path: 字幕文件路径
         model_name: 模型名称
         device: 设备类型
         generate_subtitle: 是否生成字幕
@@ -288,6 +374,14 @@ async def process_subtitle(
         word_timestamps: 是否包含词级时间戳
         burn_type: 字幕烧录类型
         beam_size: beam search 大小
+        subtitle_bottom_margin: 字幕下沿距离（像素）
+        duration_reference: 时长基准
+        adjust_audio_speed: 是否自动调整音频语速
+        audio_speed_factor: 语速调整倍数
+        audio_volume: 音频音量
+        keep_original_audio: 是否保留原视频音频
+        enable_llm_correction: 是否启用LLM字幕纠错
+        reference_text: 参考文本
 
     Returns:
         Tuple: (任务ID, 状态信息, 详细状态, SRT文件, 双语SRT文件, 视频文件, 转录文本)
@@ -316,10 +410,11 @@ async def process_subtitle(
                 "error",
                 status_html,
                 {"success": False, "error": "请上传或提供有效的视频/音频文件"},
-                None,
-                None,
-                None,
-                ""
+                gr.update(value=None, visible=False),
+                gr.update(value=None, visible=False),
+                gr.update(value=None, visible=False),
+                gr.update(value=None, visible=False),
+                gr.update(value="", visible=False)
             )
 
         Logger.info(f"开始处理字幕生成 - input_type: {input_type}, video_file: {video_file}, audio_file: {audio_file}")
@@ -329,8 +424,10 @@ async def process_subtitle(
             input_type=input_type,
             video_file=video_file,
             audio_file=audio_file,
+            subtitle_file=subtitle_file,
             video_path=video_path,
             audio_path=audio_path,
+            subtitle_path=subtitle_path,
             model_name=model_name,
             device=device,
             generate_subtitle=generate_subtitle,
@@ -338,6 +435,7 @@ async def process_subtitle(
             word_timestamps=word_timestamps,
             burn_subtitles=burn_type,
             beam_size=beam_size,
+            subtitle_bottom_margin=subtitle_bottom_margin,
             out_basename=None,
             flower_config=None,  # 不包含花字
             image_config=None,   # 不包含插图
@@ -348,7 +446,14 @@ async def process_subtitle(
             audio_volume=audio_volume,  # 音频音量控制
             keep_original_audio=keep_original_audio,  # 保留原音频
             enable_llm_correction=enable_llm_correction,  # LLM 字幕纠错
-            reference_text=reference_text  # 参考文本
+            reference_text=reference_text,  # 参考文本
+            # Whisper 基础参数
+            vad_filter=vad_filter,
+            condition_on_previous_text=condition_on_previous_text,
+            temperature=temperature,
+            # 字幕显示参数（后处理）
+            max_chars_per_line=max_chars_per_line,
+            max_lines_per_segment=max_lines_per_segment
         )
 
         # 生成任务ID
@@ -388,10 +493,11 @@ async def process_subtitle(
             job_id,
             status_html,
             result,
-            subtitle_path,
-            bilingual_subtitle_path,
-            video_with_subtitle_path,
-            result.get("transcript_text", "")
+            gr.update(value=subtitle_path, visible=bool(subtitle_path)),
+            gr.update(value=bilingual_subtitle_path, visible=bool(bilingual_subtitle_path)),
+            gr.update(value=video_with_subtitle_path, visible=bool(video_with_subtitle_path)),
+            gr.update(value=video_with_subtitle_path, visible=bool(video_with_subtitle_path)),
+            gr.update(value=result.get("transcript_text", ""), visible=bool(result.get("transcript_text")))
         )
 
     except Exception as e:
@@ -410,8 +516,9 @@ async def process_subtitle(
             "error",
             status_html,
             {"success": False, "error": str(e)},
-            None,
-            None,
-            None,
-            ""
+            gr.update(value=None, visible=False),
+            gr.update(value=None, visible=False),
+            gr.update(value=None, visible=False),
+            gr.update(value=None, visible=False),
+            gr.update(value="", visible=False)
         )
