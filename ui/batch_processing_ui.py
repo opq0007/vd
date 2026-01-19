@@ -90,12 +90,27 @@ def create_batch_processing_interface() -> gr.Blocks:
                     lines=3
                 )
                 
-                # 用户图片上传
-                user_images_input = gr.File(
-                    label="用户图片（0-5张）",
-                    file_count="multiple",
-                    file_types=["image"]
-                )
+                # 用户图片输入 - 支持两种方式
+                with gr.Row():
+                    with gr.Column():
+                        # 方式1：文件上传
+                        user_images_upload = gr.File(
+                            label="方式1：上传图片（0-6张）",
+                            file_count="multiple",
+                            file_types=["image"]
+                        )
+                        gr.Markdown("*直接上传图片文件*")
+                    
+                    with gr.Column():
+                        # 方式2：路径输入
+                        user_images_paths = gr.Textbox(
+                            label="方式2：图片路径（0-6张）",
+                            lines=5,
+                            placeholder="输入图片文件路径，每行一个，例如：\n/path/to/image1.jpg\nC:/images/image2.png\nhttps://example.com/image3.jpg"
+                        )
+                        gr.Markdown("*支持 http/https URL 或本地文件路径，兼容 Windows (C:/) 和 Linux (/) 路径*")
+                
+                gr.Markdown("**提示：两种方式二选一，优先使用上传方式**")
                 
                 # 执行按钮
                 execute_btn = gr.Button("🚀 开始处理", variant="primary")
@@ -107,33 +122,70 @@ def create_batch_processing_interface() -> gr.Blocks:
                 progress_bar = gr.Progress()
                 status_info = gr.HTML("<div>等待开始...</div>")
                 
-                # 任务列表
-                gr.Markdown("### 📋 任务列表")
-                task_list = gr.JSON(label="任务列表", visible=False)
-                
-                # 结果展示区域
-                gr.Markdown("### 🎬 处理结果")
-                result_status = gr.JSON(label="详细状态", visible=False)
+                # 任务执行详情
+                gr.Markdown("### 📋 任务执行详情")
+                task_results = gr.HTML("<div>等待开始...</div>")
                 
                 # 视频预览
+                gr.Markdown("### 🎥 最终视频预览")
                 video_preview = gr.Video(label="视频预览", visible=False)
-                
-                # 文件下载
-                output_files = gr.File(label="下载输出文件", visible=False)
         
         # 事件处理
         def update_template_info(template_name):
-            """更新模板信息"""
+            """更新模板信息并自动填充参数默认值"""
             if not template_name or template_name == "无可用模板":
-                return gr.JSON(value={}, visible=False)
+                return (
+                    gr.JSON(value={}, visible=False),
+                    "",  # username
+                    6,   # age
+                    "生日快乐",  # theme
+                    "奥特曼",  # character
+                    "",  # sub_character
+                    "",  # tts_text
+                )
             
             info = template_manager.get_template_info(template_name)
-            return gr.JSON(value=info, visible=True)
+            parameters = info.get("parameters", {})
+            
+            # 从模板参数中提取默认值
+            # 使用嵌套的get方法安全地获取参数值
+            username = parameters.get("username", {}).get("default", "")
+            age = parameters.get("age", {}).get("default", 6)
+            theme_text = parameters.get("theme_text", {}).get("default", "生日快乐")
+            
+            # character参数：优先从parameters中获取，否则从模板元数据中获取
+            character = parameters.get("character", {}).get("default", "")
+            if not character:
+                character = info.get("character", "奥特曼")
+            
+            # sub_character参数：从parameters中获取，如果不存在则为空
+            sub_character = parameters.get("sub_character", {}).get("default", "")
+            
+            # tts_text参数：从parameters中获取默认值
+            tts_text = parameters.get("tts_text", {}).get("default", "")
+            
+            return (
+                gr.JSON(value=info, visible=True),
+                username,
+                age,
+                theme_text,
+                character,
+                sub_character,
+                tts_text,
+            )
         
         template_dropdown.change(
             update_template_info,
             inputs=[template_dropdown],
-            outputs=[template_info]
+            outputs=[
+                template_info,
+                username_input,
+                age_input,
+                theme_input,
+                character_input,
+                sub_character_input,
+                tts_text_input,
+            ]
         )
         
         async def execute_batch_processing(
@@ -144,14 +196,14 @@ def create_batch_processing_interface() -> gr.Blocks:
             character,
             sub_character,
             tts_text,
-            user_images
+            user_images_upload,
+            user_images_paths
         ):
             """执行批量处理"""
             try:
                 if not template_name or template_name == "无可用模板":
                     return (
                         "<div style='color: red;'>请选择有效的模板</div>",
-                        None,
                         None,
                         None
                     )
@@ -167,17 +219,22 @@ def create_batch_processing_interface() -> gr.Blocks:
                     "user_images": []
                 }
                 
-                # 处理用户图片
-                if user_images:
-                    if isinstance(user_images, list):
-                        for img in user_images[:5]:  # 最多5张图片
+                # 处理用户图片 - 优先使用上传方式
+                if user_images_upload:
+                    if isinstance(user_images_upload, list):
+                        for img in user_images_upload[:6]:  # 最多6张图片
                             if isinstance(img, str):
                                 parameters["user_images"].append(img)
                             elif hasattr(img, 'name'):
                                 parameters["user_images"].append(img.name)
                     else:
-                        if hasattr(user_images, 'name'):
-                            parameters["user_images"].append(user_images.name)
+                        if hasattr(user_images_upload, 'name'):
+                            parameters["user_images"].append(user_images_upload.name)
+                elif user_images_paths and user_images_paths.strip():
+                    # 使用路径输入方式
+                    paths = [p.strip() for p in user_images_paths.strip().split('\n') if p.strip()]
+                    for path in paths[:6]:  # 最多6张图片
+                        parameters["user_images"].append(path)
                 
                 # 进度回调
                 async def progress_callback(progress_info):
@@ -197,7 +254,10 @@ def create_batch_processing_interface() -> gr.Blocks:
                     progress_callback
                 )
                 
-                # 生成状态信息
+                # 生成任务执行结果详情
+                task_results_html = generate_task_results_html(result)
+                
+                # 生成总体状态信息
                 if result["success"]:
                     status_html = f"""
                     <div style="color: green;">
@@ -214,15 +274,13 @@ def create_batch_processing_interface() -> gr.Blocks:
                     </div>
                     """
                 
-                # TODO: 从任务输出中提取视频文件
-                video_output = None
-                output_file_list = None
-                
+                # 从任务输出中提取最终视频文件
+                video_output = extract_final_video(result)
+
                 return (
                     status_html,
-                    result,
-                    video_output,
-                    output_file_list
+                    task_results_html,
+                    gr.update(value=video_output, visible=bool(video_output))
                 )
                 
             except Exception as e:
@@ -236,14 +294,12 @@ def create_batch_processing_interface() -> gr.Blocks:
                     <p>错误: {str(e)}</p>
                 </div>
                 """
-                
+
                 return (
                     status_html,
-                    {"error": str(e)},
-                    None,
+                    "",
                     None
-                )
-        
+                )        
         execute_btn.click(
             fn=execute_batch_processing,
             inputs=[
@@ -254,14 +310,56 @@ def create_batch_processing_interface() -> gr.Blocks:
                 character_input,
                 sub_character_input,
                 tts_text_input,
-                user_images_input
+                user_images_upload,
+                user_images_paths
             ],
             outputs=[
                 status_info,
-                result_status,
-                video_preview,
-                output_files
+                task_results,
+                video_preview
             ]
         )
     
     return batch_processing_interface
+
+
+def generate_task_results_html(result: Dict[str, Any]) -> str:
+    """
+    生成任务执行结果的HTML详情
+    
+    Args:
+        result: 模板执行结果
+        
+    Returns:
+        HTML字符串
+    """
+    from utils.result_formatter import result_formatter
+    return result_formatter.generate_task_results_html(result)
+
+
+def extract_output_files_from_task(task_output: Dict[str, Any]) -> str:
+    """
+    从任务输出中提取文件路径（格式化为前端展示格式）
+    
+    Args:
+        task_output: 任务输出
+        
+    Returns:
+        格式化的文件路径字符串（用于前端展示）
+    """
+    from utils.result_formatter import result_formatter
+    return result_formatter.extract_output_files_from_task(task_output, format_for_display=True)
+
+
+def extract_final_video(result: Dict[str, Any]) -> Optional[str]:
+    """
+    从执行结果中提取最终视频文件
+
+    Args:
+        result: 模板执行结果
+
+    Returns:
+        视频文件路径，如果没有则返回None
+    """
+    from utils.result_formatter import result_formatter
+    return result_formatter.extract_final_video(result)

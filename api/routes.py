@@ -95,55 +95,19 @@ def register_routes(app) -> None:
         return {"status": "healthy", "service": "whisper-api"}
 
     # ==================== 语音转文字 ====================
-    @api_router.post("/transcribe/basic")
-    async def transcribe_basic(
+    @api_router.post("/transcribe")
+    async def transcribe(
         audio: UploadFile = File(...),
-        beam_size: int = Form(None),
-        model_name: str = Form(None),
-        payload: Dict[str, Any] = Depends(verify_token)
-    ) -> Dict[str, Any]:
-        """
-        基础语音转文字
-
-        Args:
-            audio: 音频文件
-            beam_size: beam search 大小
-            model_name: 模型名称
-            payload: 认证载荷
-
-        Returns:
-            Dict[str, Any]: 转录结果
-        """
-        # 保存上传的文件
-        from utils.file_utils import FileUtils
-        job_dir = FileUtils.create_job_dir()
-        audio_path = job_dir / audio.filename
-
-        with open(audio_path, "wb") as f:
-            f.write(await audio.read())
-
-        # 执行转录
-        result = await whisper_service.transcribe_basic(
-            str(audio_path),
-            beam_size=beam_size,
-            model_name=model_name
-        )
-
-        return result
-
-    @api_router.post("/transcribe/advanced")
-    async def transcribe_advanced(
-        audio: UploadFile = File(...),
-        model_name: str = Form(None),
-        device: str = Form(None),
+        model_name: str = Form('small'),
+        device: str = Form('cpu'),
         compute_type: str = Form(None),
-        beam_size: int = Form(None),
+        beam_size: int = Form(5),
         task: str = Form("transcribe"),
-        word_timestamps: bool = Form(False),
+        word_timestamps: bool = Form(True),
         payload: Dict[str, Any] = Depends(verify_token)
     ) -> Dict[str, Any]:
         """
-        高级语音转文字
+        语音转文字
 
         Args:
             audio: 音频文件
@@ -308,6 +272,133 @@ def register_routes(app) -> None:
         """
         return tts_onnx_module.list_ref_features()
 
+    # ==================== 字幕生成 ====================
+    @api_router.post("/subtitle/generate")
+    async def generate_subtitles(
+        input_type: str = Form("upload"),
+        video_file: UploadFile = File(None),
+        audio_file: UploadFile = File(None),
+        subtitle_file: UploadFile = File(None),
+        video_path: str = Form(None),
+        audio_path: str = Form(None),
+        subtitle_path: str = Form(None),
+        model_name: str = Form("small"),
+        device: str = Form("cpu"),
+        generate_subtitle: bool = Form(True),
+        bilingual: bool = Form(False),
+        word_timestamps: bool = Form(True),
+        burn_subtitles: str = Form("hard"),
+        beam_size: int = Form(5),
+        subtitle_bottom_margin: int = Form(50),
+        out_basename: str = Form(None),
+        # 音频音量控制
+        audio_volume: float = Form(1.0),
+        # 原音频保留配置
+        keep_original_audio: bool = Form(True),
+        # LLM 字幕纠错配置
+        enable_llm_correction: bool = Form(True),
+        reference_text: str = Form(None),
+        # Whisper 基础参数
+        vad_filter: bool = Form(True),
+        condition_on_previous_text: bool = Form(False),
+        temperature: float = Form(0.0),
+        # 字幕显示参数（后处理）
+        max_chars_per_line: int = Form(20),
+        max_lines_per_segment: int = Form(2),
+        payload: Dict[str, Any] = Depends(verify_token)
+    ) -> Dict[str, Any]:
+        """
+        生成视频字幕（高级版）
+
+        Args:
+            input_type: 输入类型 (upload/path)
+            video_file: 上传的视频文件
+            audio_file: 上传的音频文件
+            subtitle_file: 上传的字幕文件
+            video_path: 视频文件路径
+            audio_path: 音频文件路径
+            subtitle_path: 字幕文件路径
+            model_name: 模型名称
+            device: 设备类型
+            generate_subtitle: 是否生成字幕
+            bilingual: 是否生成双语字幕
+            word_timestamps: 是否包含词级时间戳
+            burn_subtitles: 字幕烧录类型 (none/hard)
+            beam_size: beam search 大小
+            subtitle_bottom_margin: 字幕下沿距离（像素，默认0）
+            out_basename: 输出文件名前缀
+            audio_volume: 音频音量倍数（默认1.0，表示原音量；0.5表示降低一半音量；2.0表示提高一倍音量）
+            keep_original_audio: 是否保留原视频音频（默认True，保留并混合；False则替换原音频）
+            enable_llm_correction: 是否启用 LLM 字幕纠错（使用智谱 AI）
+            reference_text: 参考文本，用于字幕纠错
+            vad_filter: 启用 VAD 语音活动检测（默认True）
+            condition_on_previous_text: 不依赖前文分段（默认False），产生更自然的分段
+            temperature: 温度参数（默认0.0），控制预测的随机性
+            max_chars_per_line: 字幕每行最大字符数（默认20），超过会自动分割
+            max_lines_per_segment: 字幕每段最大行数（默认2），超过会自动分割
+            payload: 认证载荷
+
+        Returns:
+            Dict[str, Any]: 字幕生成结果
+        """
+        from utils.file_utils import FileUtils
+        job_dir = FileUtils.create_job_dir()
+
+        # 处理上传文件
+        video_file_path = None
+        audio_file_path = None
+        subtitle_file_path = None
+
+        if video_file:
+            video_file_path = job_dir / video_file.filename
+            with open(video_file_path, "wb") as f:
+                f.write(await video_file.read())
+
+        if audio_file:
+            audio_file_path = job_dir / audio_file.filename
+            with open(audio_file_path, "wb") as f:
+                f.write(await audio_file.read())
+
+        if subtitle_file:
+            subtitle_file_path = job_dir / subtitle_file.filename
+            with open(subtitle_file_path, "wb") as f:
+                f.write(await subtitle_file.read())
+
+        # 执行高级字幕生成
+        result = await subtitle_module.generate_subtitles_advanced(
+            input_type=input_type,
+            video_file=str(video_file_path) if video_file_path else None,
+            audio_file=str(audio_file_path) if audio_file_path else None,
+            subtitle_file=str(subtitle_file_path) if subtitle_file_path else None,
+            video_path=video_path,
+            audio_path=audio_path,
+            subtitle_path=subtitle_path,
+            model_name=model_name,
+            device=device,
+            generate_subtitle=generate_subtitle,
+            bilingual=bilingual,
+            word_timestamps=word_timestamps,
+            burn_subtitles=burn_subtitles,
+            beam_size=beam_size,
+            subtitle_bottom_margin=subtitle_bottom_margin,
+            out_basename=out_basename,
+            audio_volume=audio_volume,
+            keep_original_audio=keep_original_audio,
+            enable_llm_correction=enable_llm_correction,
+            reference_text=reference_text,
+            # Whisper 基础参数
+            vad_filter=vad_filter,
+            condition_on_previous_text=condition_on_previous_text,
+            temperature=temperature,
+            # 字幕显示参数（后处理）
+            max_chars_per_line=max_chars_per_line,
+            max_lines_per_segment=max_lines_per_segment,
+            job_dir=job_dir  # 传递 job_dir，确保在同一个目录下处理
+        )
+
+        return result
+
+    # ==================== 文件操作 ====================
     @api_router.get("/file/download")
     async def download_file(
         file_path: str = Query(..., description="文件路径"),
@@ -374,326 +465,58 @@ def register_routes(app) -> None:
             filename=file_obj.name
         )
 
-    # ==================== 字幕生成 ====================
-    @api_router.post("/subtitle/generate")
-    async def generate_subtitles(
-        input_type: str = Form("upload"),
-        video_file: UploadFile = File(None),
-        audio_file: UploadFile = File(None),
-        subtitle_file: UploadFile = File(None),
-        video_path: str = Form(None),
-        audio_path: str = Form(None),
-        subtitle_path: str = Form(None),
-        model_name: str = Form("small"),
-        device: str = Form("cpu"),
-        generate_subtitle: bool = Form(True),
-        bilingual: bool = Form(True),
-        word_timestamps: bool = Form(False),
-        burn_subtitles: str = Form("none"),
-        beam_size: int = Form(5),
-        subtitle_bottom_margin: int = Form(20),
-        out_basename: str = Form(None),
-        # 花字配置
-        flower_text: str = Form(None),
-        flower_font: str = Form("Microsoft YaHei"),
-        flower_size: int = Form(75),
-        flower_color_mode: str = Form("单色"),
-        flower_color: str = Form("#FFFFFF"),
-        flower_gradient_type: str = Form("水平渐变"),
-        flower_color_start: str = Form("#FF0000"),
-        flower_color_end: str = Form("#0000FF"),
-        flower_x: int = Form(100),
-        flower_y: int = Form(100),
-        flower_timing_type: str = Form("时间戳范围"),
-        flower_start_frame: int = Form(0),
-        flower_end_frame: int = Form(100),
-        flower_start_time: str = Form("00:00:00"),
-        flower_end_time: str = Form("00:00:05"),
-        flower_stroke_enabled: bool = Form(False),
-        flower_stroke_color: str = Form("#000000"),
-        flower_stroke_width: int = Form(2),
-        flower_animation_enabled: bool = Form(False),
-        flower_animation_type: str = Form("无效果"),
-        flower_animation_speed: float = Form(1.0),
-        flower_animation_amplitude: float = Form(20.0),
-        flower_animation_direction: str = Form("left"),
-        # 插图配置
-        image_path: str = Form(None),
-        image_x: int = Form(200),
-        image_y: int = Form(200),
-        image_width: int = Form(200),
-        image_height: int = Form(150),
-        image_timing_type: str = Form("时间戳范围"),
-        image_start_frame: int = Form(0),
-        image_end_frame: int = Form(100),
-        image_start_time: str = Form("00:00:00"),
-        image_end_time: str = Form("00:00:05"),
-        image_remove_bg: bool = Form(True),
-        # 水印配置
-        watermark_text: str = Form(None),
-        watermark_font: str = Form("Arial"),
-        watermark_size: int = Form(20),
-        watermark_color: str = Form("#FFFFFF"),
-        watermark_timing_type: str = Form("时间戳范围"),
-        watermark_start_frame: int = Form(0),
-        watermark_end_frame: int = Form(999999),
-        watermark_start_time: str = Form("00:00:00"),
-        watermark_end_time: str = Form("99:59:59"),
-        watermark_style: str = Form("半透明浮动"),
-        # 音频音量控制
-        audio_volume: float = Form(1.0),
-        # 原音频保留配置
-        keep_original_audio: bool = Form(True),
-        # LLM 字幕纠错配置
-                enable_llm_correction: bool = Form(False),
-                reference_text: str = Form(None),
-                # Whisper 基础参数
-                vad_filter: bool = Form(True),
-                condition_on_previous_text: bool = Form(False),
-                temperature: float = Form(0.0),
-                # 字幕显示参数（后处理）
-                max_chars_per_line: int = Form(20),
-                max_lines_per_segment: int = Form(2),
-        
-                payload: Dict[str, Any] = Depends(verify_token)    ) -> Dict[str, Any]:
-        """
-        生成视频字幕（高级版）
-
-        Args:
-            input_type: 输入类型 (upload/path)
-            video_file: 上传的视频文件
-            audio_file: 上传的音频文件
-            subtitle_file: 上传的字幕文件
-            video_path: 视频文件路径
-            audio_path: 音频文件路径
-            subtitle_path: 字幕文件路径
-            model_name: 模型名称
-            device: 设备类型
-            generate_subtitle: 是否生成字幕
-            bilingual: 是否生成双语字幕
-            word_timestamps: 是否包含词级时间戳
-            burn_subtitles: 字幕烧录类型 (none/hard)
-            beam_size: beam search 大小
-            subtitle_bottom_margin: 字幕下沿距离（像素，默认0）
-            out_basename: 输出文件名前缀
-            flower_text: 花字文字
-            flower_font: 花字字体
-            flower_size: 花字大小
-            flower_color: 花字颜色
-            flower_x: 花字X坐标
-            flower_y: 花字Y坐标
-            flower_timing_type: 花字时机类型
-            flower_start_frame: 花字起始帧
-            flower_end_frame: 花字结束帧
-            flower_start_time: 花字起始时间
-            flower_end_time: 花字结束时间
-            flower_stroke_enabled: 是否启用花字描边
-            flower_stroke_color: 花字描边颜色
-            flower_stroke_width: 花字描边宽度
-            image_path: 插图路径
-            image_x: 插图X坐标
-            image_y: 插图Y坐标
-            image_width: 插图宽度
-            image_height: 插图高度
-            image_timing_type: 插图时机类型
-            image_start_frame: 插图起始帧
-            image_end_frame: 插图结束帧
-            image_start_time: 插图起始时间
-            image_end_time: 插图结束时间
-            image_remove_bg: 是否移除插图背景（使用rmbg-1.4.onnx模型）
-            watermark_text: 水印文字
-            watermark_font: 水印字体
-            watermark_size: 水印大小
-            watermark_color: 水印颜色
-            watermark_timing_type: 水印时机类型
-            watermark_start_frame: 水印起始帧
-            watermark_end_frame: 水印结束帧
-            watermark_start_time: 水印起始时间
-            watermark_end_time: 水印结束时间
-            watermark_style: 水印样式
-            audio_volume: 音频音量倍数（默认1.0，表示原音量；0.5表示降低一半音量；2.0表示提高一倍音量）
-            keep_original_audio: 是否保留原视频音频（默认True，保留并混合；False则替换原音频）
-            enable_llm_correction: 是否启用 LLM 字幕纠错（使用智谱 AI）
-            reference_text: 参考文本，用于字幕纠错
-            vad_filter: 启用 VAD 语音活动检测（默认True）
-            condition_on_previous_text: 不依赖前文分段（默认False），产生更自然的分段
-            temperature: 温度参数（默认0.0），控制预测的随机性
-            max_chars_per_line: 字幕每行最大字符数（默认20），超过会自动分割
-            max_lines_per_segment: 字幕每段最大行数（默认2），超过会自动分割
-            payload: 认证载荷
-
-        Returns:
-            Dict[str, Any]: 字幕生成结果
-        """
-        from utils.file_utils import FileUtils
-        job_dir = FileUtils.create_job_dir()
-
-        # 处理上传文件
-        video_file_path = None
-        audio_file_path = None
-        subtitle_file_path = None
-
-        if video_file:
-            video_file_path = job_dir / video_file.filename
-            with open(video_file_path, "wb") as f:
-                f.write(await video_file.read())
-
-        if audio_file:
-            audio_file_path = job_dir / audio_file.filename
-            with open(audio_file_path, "wb") as f:
-                f.write(await audio_file.read())
-
-        if subtitle_file:
-            subtitle_file_path = job_dir / subtitle_file.filename
-            with open(subtitle_file_path, "wb") as f:
-                f.write(await subtitle_file.read())
-
-        # 准备花字配置
-        flower_config = None
-        if flower_text and flower_text.strip():
-            flower_config = {
-                'text': flower_text,
-                'font': flower_font,
-                'size': flower_size,
-                'color_mode': flower_color_mode,
-                'color': flower_color,
-                'gradient_type': flower_gradient_type,
-                'color_start': flower_color_start,
-                'color_end': flower_color_end,
-                'x': flower_x,
-                'y': flower_y,
-                'timing_type': flower_timing_type,
-                'start_frame': flower_start_frame,
-                'end_frame': flower_end_frame,
-                'start_time': flower_start_time,
-                'end_time': flower_end_time,
-                'stroke_enabled': flower_stroke_enabled,
-                'stroke_color': flower_stroke_color,
-                'stroke_width': flower_stroke_width,
-                'animation_enabled': flower_animation_enabled,
-                'animation_type': flower_animation_type,
-                'animation_speed': flower_animation_speed,
-                'animation_amplitude': flower_animation_amplitude,
-                'animation_direction': flower_animation_direction
-            }
-
-        # 准备插图配置
-        image_config = None
-        if image_path and image_path.strip():
-            image_config = {
-                'path': image_path,
-                'x': image_x,
-                'y': image_y,
-                'width': image_width,
-                'height': image_height,
-                'remove_bg': image_remove_bg,
-                'timing_type': image_timing_type,
-                'start_frame': image_start_frame,
-                'end_frame': image_end_frame,
-                'start_time': image_start_time,
-                'end_time': image_end_time
-            }
-
-        # 准备水印配置
-        watermark_config = None
-        if watermark_text and watermark_text.strip():
-            watermark_config = {
-                'text': watermark_text,
-                'font': watermark_font,
-                'size': watermark_size,
-                'color': watermark_color,
-                'timing_type': watermark_timing_type,
-                'start_frame': watermark_start_frame,
-                'end_frame': watermark_end_frame,
-                'start_time': watermark_start_time,
-                'end_time': watermark_end_time,
-                'style': watermark_style
-            }
-
-        # 执行高级字幕生成
-        result = await subtitle_module.generate_subtitles_advanced(
-            input_type=input_type,
-            video_file=str(video_file_path) if video_file_path else None,
-            audio_file=str(audio_file_path) if audio_file_path else None,
-            subtitle_file=str(subtitle_file_path) if subtitle_file_path else None,
-            video_path=video_path,
-            audio_path=audio_path,
-            subtitle_path=subtitle_path,
-            model_name=model_name,
-            device=device,
-            generate_subtitle=generate_subtitle,
-            bilingual=bilingual,
-            word_timestamps=word_timestamps,
-            burn_subtitles=burn_subtitles,
-            beam_size=beam_size,
-            subtitle_bottom_margin=subtitle_bottom_margin,
-            out_basename=out_basename,
-            flower_config=flower_config,
-            image_config=image_config,
-            watermark_config=watermark_config,
-            audio_volume=audio_volume,
-            keep_original_audio=keep_original_audio,
-            enable_llm_correction=enable_llm_correction,
-            reference_text=reference_text,
-            # Whisper 基础参数
-            vad_filter=vad_filter,
-            condition_on_previous_text=condition_on_previous_text,
-            temperature=temperature,
-            # 字幕显示参数（后处理）
-            max_chars_per_line=max_chars_per_line,
-            max_lines_per_segment=max_lines_per_segment,
-            job_dir=job_dir  # 传递 job_dir，确保在同一个目录下处理
-        )
-
-        return result
-
-    @api_router.post("/subtitle/watermark")
-    async def add_watermark(
-        video: UploadFile = File(...),
-        watermark_text: str = Form(None),
-        watermark_image: UploadFile = File(None),
-        position: str = Form("bottom_right"),
-        opacity: float = Form(0.5),
+    @api_router.post("/file/upload")
+    async def upload_file(
+        file: UploadFile = File(...),
         payload: Dict[str, Any] = Depends(verify_token)
     ) -> Dict[str, Any]:
         """
-        为视频添加水印
+        文件上传接口
 
         Args:
-            video: 视频文件
-            watermark_text: 水印文字
-            watermark_image: 水印图片
-            position: 水印位置
-            opacity: 透明度
+            file: 上传的文件
             payload: 认证载荷
 
         Returns:
-            Dict[str, Any]: 添加水印结果
+            Dict[str, Any]: 包含文件路径的响应
         """
         from utils.file_utils import FileUtils
-        job_dir = FileUtils.create_job_dir()
-        video_path = job_dir / video.filename
 
-        with open(video_path, "wb") as f:
-            f.write(await video.read())
+        try:
+            # 确保上传目录存在
+            upload_dir = Path(config.UPLOAD_FOLDER)
+            upload_dir.mkdir(parents=True, exist_ok=True)
 
-        # 处理水印图片
-        watermark_image_path = None
-        if watermark_image:
-            watermark_image_path = job_dir / watermark_image.filename
-            with open(watermark_image_path, "wb") as f:
-                f.write(await watermark_image.read())
+            # 生成安全的文件名
+            filename = file.filename
+            if not filename:
+                raise HTTPException(status_code=400, detail="文件名不能为空")
 
-        result = await subtitle_module.add_watermark(
-            video_path=video_path,
-            watermark_text=watermark_text,
-            watermark_image=str(watermark_image_path) if watermark_image_path else None,
-            position=position,
-            opacity=opacity,
-            job_dir=job_dir  # 传递 job_dir，确保在同一个目录下处理
-        )
+            # 避免文件名冲突
+            file_path = upload_dir / filename
+            counter = 1
+            while file_path.exists():
+                name, ext = Path(filename).stem, Path(filename).suffix
+                file_path = upload_dir / f"{name}_{counter}{ext}"
+                counter += 1
 
-        return result
+            # 保存文件
+            with open(file_path, "wb") as f:
+                f.write(await file.read())
+
+            Logger.info(f"文件上传成功: {file_path}")
+
+            return {
+                "success": True,
+                "filename": file_path.name,
+                "filepath": str(file_path.absolute()),
+                "size": file_path.stat().st_size,
+                "message": "文件上传成功"
+            }
+
+        except Exception as e:
+            Logger.error(f"文件上传失败: {e}")
+            raise HTTPException(status_code=500, detail=f"文件上传失败: {str(e)}")
 
     # ==================== 视频转场 ====================
     @api_router.post("/transition/apply")
@@ -701,10 +524,10 @@ def register_routes(app) -> None:
         video1: UploadFile = File(...),
         video2: UploadFile = File(...),
         transition_name: str = Form("crossfade"),
-        total_frames: int = Form(30),
-        fps: int = Form(30),
-        width: int = Form(640),
-        height: int = Form(640),
+        total_frames: int = Form(100),
+        fps: int = Form(25),
+        width: int = Form(600),
+        height: int = Form(800),
         payload: Dict[str, Any] = Depends(verify_token)
     ) -> Dict[str, Any]:
         """
@@ -790,11 +613,17 @@ def register_routes(app) -> None:
         input_type: str = Form("upload"),
         video_file: UploadFile = File(None),
         video_path: str = Form(None),
+        audio_file: UploadFile = File(None),
+        audio_path: str = Form(None),
         # 花字配置
         flower_text: str = Form(None),
         flower_font: str = Form("Microsoft YaHei"),
         flower_size: int = Form(40),
         flower_color: str = Form("#FFFFFF"),
+        flower_color_mode: str = Form("单色"),
+        flower_gradient_type: str = Form("水平渐变"),
+        flower_color_start: str = Form("#FF0000"),
+        flower_color_end: str = Form("#0000FF"),
         flower_x: int = Form(100),
         flower_y: int = Form(100),
         flower_timing_type: str = Form("时间戳范围"),
@@ -805,6 +634,11 @@ def register_routes(app) -> None:
         flower_stroke_enabled: bool = Form(False),
         flower_stroke_color: str = Form("#000000"),
         flower_stroke_width: int = Form(2),
+        flower_animation_enabled: bool = Form(False),
+        flower_animation_type: str = Form("无效果"),
+        flower_animation_speed: float = Form(1.0),
+        flower_animation_amplitude: float = Form(20.0),
+        flower_animation_direction: str = Form("left"),
         # 插图配置
         image_path: str = Form(None),
         image_x: int = Form(200),
@@ -817,9 +651,20 @@ def register_routes(app) -> None:
         image_start_time: str = Form("00:00:00"),
         image_end_time: str = Form("00:00:05"),
         image_remove_bg: bool = Form(True),
+        # 插视频配置
+        video_path_to_insert: str = Form(None),
+        video_x: int = Form(10),
+        video_y: int = Form(10),
+        video_width: int = Form(200),
+        video_height: int = Form(150),
+        video_timing_type: str = Form("时间戳范围"),
+        video_start_frame: int = Form(0),
+        video_end_frame: int = Form(999999),
+        video_start_time: str = Form("00:00:00"),
+        video_end_time: str = Form("99:59:59"),
         # 水印配置
         watermark_text: str = Form(None),
-        watermark_font: str = Form("Arial"),
+        watermark_font: str = Form("黑体.TTF"),
         watermark_size: int = Form(20),
         watermark_color: str = Form("#FFFFFF"),
         watermark_timing_type: str = Form("时间戳范围"),
@@ -838,10 +683,16 @@ def register_routes(app) -> None:
             input_type: 输入类型 (upload/path)
             video_file: 上传的视频文件
             video_path: 视频文件路径
+            audio_file: 上传的音频文件
+            audio_path: 音频文件路径
             flower_text: 花字文字
             flower_font: 花字字体
             flower_size: 花字大小
             flower_color: 花字颜色
+            flower_color_mode: 花字颜色模式
+            flower_gradient_type: 渐变类型
+            flower_color_start: 渐变起始颜色
+            flower_color_end: 渐变结束颜色
             flower_x: 花字X坐标
             flower_y: 花字Y坐标
             flower_timing_type: 花字时机类型
@@ -852,6 +703,11 @@ def register_routes(app) -> None:
             flower_stroke_enabled: 是否启用花字描边
             flower_stroke_color: 花字描边颜色
             flower_stroke_width: 花字描边宽度
+            flower_animation_enabled: 是否启用花字动画
+            flower_animation_type: 花字动画类型
+            flower_animation_speed: 花字动画速度
+            flower_animation_amplitude: 花字动画幅度
+            flower_animation_direction: 花字动画方向
             image_path: 插图路径
             image_x: 插图X坐标
             image_y: 插图Y坐标
@@ -863,6 +719,16 @@ def register_routes(app) -> None:
             image_start_time: 插图起始时间
             image_end_time: 插图结束时间
             image_remove_bg: 是否移除插图背景（使用rmbg-1.4.onnx模型）
+            video_path_to_insert: 插入的视频路径
+            video_x: 插视频X坐标
+            video_y: 插视频Y坐标
+            video_width: 插视频宽度
+            video_height: 插视频高度
+            video_timing_type: 插视频时机类型
+            video_start_frame: 插视频起始帧
+            video_end_frame: 插视频结束帧
+            video_start_time: 插视频起始时间
+            video_end_time: 插视频结束时间
             watermark_text: 水印文字
             watermark_font: 水印字体
             watermark_size: 水印大小
@@ -884,10 +750,15 @@ def register_routes(app) -> None:
 
         # 处理上传文件
         video_file_path = None
+        audio_file_path = None
         if video_file:
             video_file_path = job_dir / video_file.filename
             with open(video_file_path, "wb") as f:
                 f.write(await video_file.read())
+        if audio_file:
+            audio_file_path = job_dir / audio_file.filename
+            with open(audio_file_path, "wb") as f:
+                f.write(await audio_file.read())
 
         # 准备花字配置
         flower_config = None
@@ -935,6 +806,22 @@ def register_routes(app) -> None:
                 'end_time': image_end_time
             }
 
+        # 准备插视频配置
+        video_config = None
+        if video_path_to_insert and video_path_to_insert.strip():
+            video_config = {
+                'path': video_path_to_insert,
+                'x': video_x,
+                'y': video_y,
+                'width': video_width,
+                'height': video_height,
+                'timing_type': video_timing_type,
+                'start_frame': video_start_frame,
+                'end_frame': video_end_frame,
+                'start_time': video_start_time,
+                'end_time': video_end_time
+            }
+
         # 准备水印配置
         watermark_config = None
         if watermark_text and watermark_text.strip():
@@ -956,8 +843,11 @@ def register_routes(app) -> None:
             input_type=input_type,
             video_file=str(video_file_path) if video_file_path else None,
             video_path=video_path,
+            audio_file=str(audio_file_path) if audio_file_path else None,
+            audio_path=audio_path,
             flower_config=flower_config,
             image_config=image_config,
+            video_config=video_config,
             watermark_config=watermark_config,
             out_basename=out_basename,
             job_dir=job_dir  # 传递 job_dir，确保在同一个目录下处理
@@ -980,372 +870,54 @@ def register_routes(app) -> None:
         """
         return video_editor_module.get_available_effects()
 
-    # ==================== 文件上传 ====================
-    @api_router.post("/file/upload")
-    async def upload_file(
-        file: UploadFile = File(...),
+    @api_router.post("/video_editor/watermark")
+    async def add_watermark(
+        video: UploadFile = File(...),
+        watermark_text: str = Form(None),
         payload: Dict[str, Any] = Depends(verify_token)
     ) -> Dict[str, Any]:
         """
-        文件上传接口
+        为视频添加水印
 
         Args:
-            file: 上传的文件
+            video: 视频文件
+            watermark_text: 水印文字
             payload: 认证载荷
 
         Returns:
-            Dict[str, Any]: 包含文件路径的响应
+            Dict[str, Any]: 添加水印结果
         """
         from utils.file_utils import FileUtils
+        job_dir = FileUtils.create_job_dir()
+        video_path = job_dir / video.filename
 
-        try:
-            # 确保上传目录存在
-            upload_dir = Path(config.UPLOAD_FOLDER)
-            upload_dir.mkdir(parents=True, exist_ok=True)
+        with open(video_path, "wb") as f:
+            f.write(await video.read())
 
-            # 生成安全的文件名
-            filename = file.filename
-            if not filename:
-                raise HTTPException(status_code=400, detail="文件名不能为空")
-
-            # 避免文件名冲突
-            file_path = upload_dir / filename
-            counter = 1
-            while file_path.exists():
-                name, ext = Path(filename).stem, Path(filename).suffix
-                file_path = upload_dir / f"{name}_{counter}{ext}"
-                counter += 1
-
-            # 保存文件
-            with open(file_path, "wb") as f:
-                f.write(await file.read())
-
-            Logger.info(f"文件上传成功: {file_path}")
-
-            return {
-                "success": True,
-                "filename": file_path.name,
-                "filepath": str(file_path.absolute()),
-                "size": file_path.stat().st_size,
-                "message": "文件上传成功"
+        # 构建水印配置
+        watermark_config = None
+        if watermark_text and watermark_text.strip():
+            watermark_config = {
+                'text': watermark_text,
+                'font': 'Arial',
+                'size': 20,
+                'color': '#FFFFFF',
+                'timing_type': '时间戳范围',
+                'start_time': '00:00:00',
+                'end_time': '99:59:59',
+                'style': '半透明浮动'
             }
 
-        except Exception as e:
-            Logger.error(f"文件上传失败: {e}")
-            raise HTTPException(status_code=500, detail=f"文件上传失败: {str(e)}")
+        # 直接调用 apply_video_effects
+        result = await video_editor_module.apply_video_effects(
+            input_type="upload",
+            video_file=str(video_path),
+            watermark_config=watermark_config,
+            out_basename="watermark",
+            job_dir=job_dir
+        )
 
-    # ==================== 一站式音视频合成+字幕生成+LLM纠错 ====================
-    @api_router.post("/video/complete_process")
-    async def complete_video_process(
-        video_path: str = Form(...),
-        audio_path: str = Form(...),
-        model_name: str = Form("small"),
-        device: str = Form("cpu"),
-        beam_size: int = Form(5),
-        audio_volume: float = Form(1.0),
-        keep_original_audio: bool = Form(True),
-        enable_llm_correction: bool = Form(False),
-        reference_text: str = Form(None),
-        burn_subtitles: str = Form("hard"),
-        out_basename: str = Form(None),
-        # Whisper 基础参数
-        vad_filter: bool = Form(True),
-        condition_on_previous_text: bool = Form(False),
-        temperature: float = Form(0.0),
-        # 字幕显示参数（后处理）
-        max_chars_per_line: int = Form(20),
-        max_lines_per_segment: int = Form(2),
-        payload: Dict[str, Any] = Depends(verify_token)
-    ) -> Dict[str, Any]:
-        """
-        一站式音视频合成+字幕生成+LLM纠错
-
-        自动进行以下操作：
-        1. 以视频时长为准，自动调整音频速率来适配视频时长
-        2. 将音频与视频合成
-        3. 生成字幕
-        4. 如果启用LLM纠错，使用智谱AI进行字幕纠错
-        5. 如果需要，烧录字幕到视频
-
-        Args:
-            video_path: 视频文件路径
-            audio_path: 音频文件路径
-            model_name: Whisper模型名称
-            device: 设备类型
-            beam_size: beam search 大小
-            audio_volume: 音频音量倍数（默认1.0）
-            keep_original_audio: 是否保留原视频音频（默认True）
-            enable_llm_correction: 是否启用LLM字幕纠错
-            reference_text: 参考文本，用于字幕纠错
-            burn_subtitles: 字幕烧录类型 (none/hard)
-            out_basename: 输出文件名前缀
-            vad_filter: 启用 VAD 语音活动检测（默认True）
-            condition_on_previous_text: 不依赖前文分段（默认False），产生更自然的分段
-            temperature: 温度参数（默认0.0），控制预测的随机性
-            max_chars_per_line: 字幕每行最大字符数（默认20），超过会自动分割
-            max_lines_per_segment: 字幕每段最大行数（默认2），超过会自动分割
-            payload: 认证载荷
-
-        Returns:
-            Dict[str, Any]: 处理结果
-        """
-        try:
-            # 验证文件路径
-            video_file = Path(video_path)
-            audio_file = Path(audio_path)
-
-            if not video_file.exists():
-                raise HTTPException(status_code=404, detail=f"视频文件不存在: {video_path}")
-
-            if not audio_file.exists():
-                raise HTTPException(status_code=404, detail=f"音频文件不存在: {audio_path}")
-
-            Logger.info(f"开始一站式处理: 视频={video_path}, 音频={audio_path}")
-
-            # 调用字幕生成模块
-            result = await subtitle_module.generate_subtitles_advanced(
-                input_type="path",
-                video_path=video_path,
-                audio_path=audio_path,
-                model_name=model_name,
-                device=device,
-                generate_subtitle=True,
-                bilingual=False,
-                word_timestamps=False,
-                burn_subtitles=burn_subtitles,
-                beam_size=beam_size,
-                out_basename=out_basename,
-                flower_config=None,
-                image_config=None,
-                watermark_config=None,
-                duration_reference="video",  # 以视频时长为准
-                adjust_audio_speed=True,  # 自动调整音频语速
-                audio_speed_factor=1.0,  # 自动计算语速倍数
-                audio_volume=audio_volume,
-                keep_original_audio=keep_original_audio,
-                enable_llm_correction=enable_llm_correction,
-                reference_text=reference_text,
-                # Whisper 基础参数
-                vad_filter=vad_filter,
-                condition_on_previous_text=condition_on_previous_text,
-                temperature=temperature,
-                # 字幕显示参数（后处理）
-                max_chars_per_line=max_chars_per_line,
-                max_lines_per_segment=max_lines_per_segment
-            )
-
-            Logger.info(f"一站式处理完成: {result.get('out_basename', 'unknown')}")
-
-            return result
-
-        except HTTPException:
-            raise
-        except Exception as e:
-            Logger.error(f"一站式处理失败: {e}")
-            import traceback
-            Logger.error(traceback.format_exc())
-            raise HTTPException(status_code=500, detail=f"处理失败: {str(e)}")
-
-    @api_router.post("/video/tts_subtitle_video")
-    async def tts_subtitle_video_process(
-        video_path: str = Form(...),
-        text_content: str = Form(...),
-        feat_id: str = Form(None),
-        cfg_value: float = Form(2.0),
-        timesteps: int = Form(5),
-        max_len: int = Form(2000),
-        model_name: str = Form("small"),
-        device: str = Form("cpu"),
-        beam_size: int = Form(5),
-        audio_volume: float = Form(1.0),
-        keep_original_audio: bool = Form(False),
-        enable_llm_correction: bool = Form(True),
-        burn_subtitles: str = Form("hard"),
-        # Whisper 基础参数
-        vad_filter: bool = Form(True),
-        condition_on_previous_text: bool = Form(False),
-        temperature: float = Form(0.0),
-        # 字幕显示参数（后处理）
-        max_chars_per_line: int = Form(20),
-        max_lines_per_segment: int = Form(2),
-        out_basename: str = Form(None),
-        payload: Dict[str, Any] = Depends(verify_token)
-    ) -> Dict[str, Any]:
-        """
-        文本转语音 + 字幕生成 + 音视频合成（一站式处理）
-
-        自动进行以下操作：
-        1. 使用 VoxCPM-1.5 ONNX 将文本转为语音（支持参考音频特征）
-        2. 生成字幕文件（SRT格式）
-        3. 如果启用LLM纠错，使用文本内容作为参考文本进行字幕纠错
-        4. 将生成的音频与视频合成
-        5. 如果需要，烧录字幕到视频
-
-        Args:
-            video_path: 视频文件路径
-            text_content: 要合成的文本内容
-            feat_id: 参考音频特征ID（可选）
-            cfg_value: CFG引导强度（默认2.0）
-            timesteps: Diffusion推理步数（默认5）
-            max_len: 最大生成长度（默认2000）
-            model_name: Whisper模型名称（默认small）
-            device: 设备类型（默认cpu）
-            beam_size: beam search大小（默认5）
-            audio_volume: 音频音量倍数（默认1.0）
-            keep_original_audio: 是否保留原视频音频（默认False）
-            enable_llm_correction: 是否启用LLM字幕纠错（默认True）
-            burn_subtitles: 字幕烧录类型 (none/hard，默认hard)
-            out_basename: 输出文件名前缀
-            vad_filter: 启用 VAD 语音活动检测（默认True）
-            condition_on_previous_text: 不依赖前文分段（默认False），产生更自然的分段
-            temperature: 温度参数（默认0.0），控制预测的随机性
-            max_chars_per_line: 字幕每行最大字符数（默认20），超过会自动分割
-            max_lines_per_segment: 字幕每段最大行数（默认2），超过会自动分割
-            payload: 认证载荷
-
-        Returns:
-            Dict[str, Any]: 处理结果，包含以下文件路径
-                - audio_file: 生成的音频文件路径
-                - subtitle_file: 生成的字幕文件路径
-                - output_video: 合成的视频文件路径
-        """
-        try:
-            from utils.file_utils import FileUtils
-            
-            # 验证视频文件路径
-            video_file = Path(video_path)
-            if not video_file.exists():
-                raise HTTPException(status_code=404, detail=f"视频文件不存在: {video_path}")
-
-            Logger.info(f"开始TTS+字幕+视频合成处理: 视频={video_path}, 文本长度={len(text_content)}, 特征ID={feat_id}")
-
-            # 创建任务目录
-            job_dir = FileUtils.create_job_dir()
-            
-            # 生成输出文件名
-            if out_basename is None:
-                out_basename = f"tts_video_{FileUtils.generate_job_id()}"
-            
-            # 1. 文本转语音（TTS）
-            Logger.info("步骤1: 开始文本转语音...")
-            audio_output_path = job_dir / f"{out_basename}_audio.wav"
-            
-            tts_result = await tts_onnx_module.synthesize(
-                text=text_content,
-                prompt_wav=None,
-                prompt_text=None,
-                feat_id=feat_id,
-                cfg_value=cfg_value,
-                min_len=2,
-                max_len=max_len,
-                timesteps=timesteps,
-                output_path=audio_output_path
-            )
-            
-            if not tts_result["success"]:
-                raise HTTPException(status_code=500, detail=f"TTS合成失败: {tts_result.get('error', '未知错误')}")
-            
-            audio_file = tts_result["output_path"]
-            Logger.info(f"TTS合成成功: {audio_file}, 时长: {tts_result.get('duration', 0):.2f}s")
-
-            # 2. 字幕生成（使用同一个 job_dir）
-            Logger.info("步骤2: 开始生成字幕...")
-            subtitle_result = await subtitle_module.generate_subtitles_advanced(
-                input_type="path",
-                video_path=video_path,
-                audio_path=audio_file,
-                model_name=model_name,
-                device=device,
-                generate_subtitle=True,
-                bilingual=False,
-                word_timestamps=False,
-                burn_subtitles="none",  # 先不烧录，等音视频合成后再处理
-                beam_size=beam_size,
-                out_basename=out_basename,
-                flower_config=None,
-                image_config=None,
-                watermark_config=None,
-                duration_reference="video",
-                adjust_audio_speed=True,
-                audio_speed_factor=1.0,
-                audio_volume=audio_volume,
-                keep_original_audio=keep_original_audio,
-                enable_llm_correction=enable_llm_correction,
-                reference_text=text_content,  # 使用输入的文本内容作为参考文本
-                # Whisper 基础参数
-                vad_filter=vad_filter,
-                condition_on_previous_text=condition_on_previous_text,
-                temperature=temperature,
-                # 字幕显示参数（后处理）
-                max_chars_per_line=max_chars_per_line,
-                max_lines_per_segment=max_lines_per_segment,
-                job_dir=job_dir  # 传递 job_dir，确保在同一个目录下处理
-            )
-            
-            if not subtitle_result.get("success", False):
-                raise HTTPException(status_code=500, detail=f"字幕生成失败: {subtitle_result.get('error', '未知错误')}")
-            
-            subtitle_file = subtitle_result.get("subtitle_path")
-            temp_video = subtitle_result.get("video_with_subtitle_path")
-            
-            if not subtitle_file:
-                raise HTTPException(status_code=500, detail="字幕生成失败：未找到字幕文件")
-            
-            Logger.info(f"字幕生成成功: {subtitle_file}, 临时视频: {temp_video}")
-
-            # 3. 音视频合成（带字幕）
-            Logger.info("步骤3: 开始音视频合成...")
-            
-            # 如果需要烧录字幕，重新处理
-            if burn_subtitles == "hard":
-                Logger.info("烧录字幕到视频...")
-                output_video_path = job_dir / f"{out_basename}_final.mp4"
-                
-                # 检查临时视频文件是否存在
-                if not temp_video or not Path(temp_video).exists():
-                    Logger.warning(f"临时视频文件不存在: {temp_video}，使用原始视频")
-                    temp_video = str(video_file)
-                
-                if not Path(temp_video).exists():
-                    raise HTTPException(status_code=500, detail=f"视频文件不存在: {temp_video}")
-                
-                # 烧录字幕
-                try:
-                    MediaProcessor.burn_hardsub(
-                        video_path=Path(temp_video),
-                        srt_path=Path(subtitle_file),
-                        output_path=output_video_path
-                    )
-                    output_video = str(output_video_path)
-                    Logger.info(f"字幕烧录成功: {output_video}")
-                except Exception as e:
-                    raise HTTPException(status_code=500, detail=f"字幕烧录失败: {str(e)}")
-            else:
-                # 不烧录字幕，直接使用合成的视频
-                if not temp_video or not Path(temp_video).exists():
-                    raise HTTPException(status_code=500, detail="音视频合成失败：未找到输出视频文件")
-                output_video = temp_video
-
-            Logger.info(f"TTS+字幕+视频合成处理完成")
-
-            # 返回所有生成的文件路径
-            return {
-                "success": True,
-                "audio_file": str(audio_file),
-                "subtitle_file": str(subtitle_file),
-                "output_video": str(output_video),
-                "out_basename": out_basename,
-                "duration": tts_result.get("duration", 0),
-                "sample_rate": tts_result.get("sample_rate", 0)
-            }
-
-        except HTTPException:
-            raise
-        except Exception as e:
-            Logger.error(f"TTS+字幕+视频合成处理失败: {e}")
-            import traceback
-            Logger.error(traceback.format_exc())
-            raise HTTPException(status_code=500, detail=f"处理失败: {str(e)}")
+        return result
 
     # ==================== 图像处理 ====================
     @api_router.post("/image/remove_background")
@@ -1525,6 +1097,526 @@ def register_routes(app) -> None:
             import traceback
             Logger.error(traceback.format_exc())
             raise HTTPException(status_code=500, detail=f"视频合并失败: {str(e)}")
+
+    # ==================== 一站式音视频合成+字幕生成+LLM纠错 ====================
+    @api_router.post("/video/complete_process")
+    async def complete_video_process(
+        video_path: str = Form(...),
+        audio_path: str = Form(...),
+        model_name: str = Form("small"),
+        device: str = Form("cpu"),
+        beam_size: int = Form(5),
+        audio_volume: float = Form(1.0),
+        keep_original_audio: bool = Form(True),
+        enable_llm_correction: bool = Form(False),
+        reference_text: str = Form(None),
+        burn_subtitles: str = Form("hard"),
+        out_basename: str = Form(None),
+        # Whisper 基础参数
+        vad_filter: bool = Form(True),
+        condition_on_previous_text: bool = Form(False),
+        temperature: float = Form(0.0),
+        # 字幕显示参数（后处理）
+        max_chars_per_line: int = Form(20),
+        max_lines_per_segment: int = Form(2),
+        payload: Dict[str, Any] = Depends(verify_token)
+    ) -> Dict[str, Any]:
+        """
+        一站式音视频合成+字幕生成+LLM纠错
+
+        自动进行以下操作：
+        1. 以视频时长为准，自动调整音频速率来适配视频时长
+        2. 将音频与视频合成
+        3. 生成字幕
+        4. 如果启用LLM纠错，使用智谱AI进行字幕纠错
+        5. 如果需要，烧录字幕到视频
+
+        Args:
+            video_path: 视频文件路径
+            audio_path: 音频文件路径
+            model_name: Whisper模型名称
+            device: 设备类型
+            beam_size: beam search 大小
+            audio_volume: 音频音量倍数（默认1.0）
+            keep_original_audio: 是否保留原视频音频（默认True）
+            enable_llm_correction: 是否启用LLM字幕纠错
+            reference_text: 参考文本，用于字幕纠错
+            burn_subtitles: 字幕烧录类型 (none/hard)
+            out_basename: 输出文件名前缀
+            vad_filter: 启用 VAD 语音活动检测（默认True）
+            condition_on_previous_text: 不依赖前文分段（默认False），产生更自然的分段
+            temperature: 温度参数（默认0.0），控制预测的随机性
+            max_chars_per_line: 字幕每行最大字符数（默认20），超过会自动分割
+            max_lines_per_segment: 字幕每段最大行数（默认2），超过会自动分割
+            payload: 认证载荷
+
+        Returns:
+            Dict[str, Any]: 处理结果
+        """
+        try:
+            # 验证文件路径
+            video_file = Path(video_path)
+            audio_file = Path(audio_path)
+
+            if not video_file.exists():
+                raise HTTPException(status_code=404, detail=f"视频文件不存在: {video_path}")
+
+            if not audio_file.exists():
+                raise HTTPException(status_code=404, detail=f"音频文件不存在: {audio_path}")
+
+            Logger.info(f"开始一站式处理: 视频={video_path}, 音频={audio_path}")
+
+            # 调用字幕生成模块
+            result = await subtitle_module.generate_subtitles_advanced(
+                input_type="path",
+                video_path=video_path,
+                audio_path=audio_path,
+                model_name=model_name,
+                device=device,
+                generate_subtitle=True,
+                bilingual=False,
+                word_timestamps=False,
+                burn_subtitles=burn_subtitles,
+                beam_size=beam_size,
+                out_basename=out_basename,
+                duration_reference="video",  # 以视频时长为准
+                adjust_audio_speed=True,  # 自动调整音频语速
+                audio_speed_factor=1.0,  # 自动计算语速倍数
+                audio_volume=audio_volume,
+                keep_original_audio=keep_original_audio,
+                enable_llm_correction=enable_llm_correction,
+                reference_text=reference_text,
+                # Whisper 基础参数
+                vad_filter=vad_filter,
+                condition_on_previous_text=condition_on_previous_text,
+                temperature=temperature,
+                # 字幕显示参数（后处理）
+                max_chars_per_line=max_chars_per_line,
+                max_lines_per_segment=max_lines_per_segment
+            )
+
+            Logger.info(f"一站式处理完成: {result.get('out_basename', 'unknown')}")
+
+            return result
+
+        except HTTPException:
+            raise
+        except Exception as e:
+            Logger.error(f"一站式处理失败: {e}")
+            import traceback
+            Logger.error(traceback.format_exc())
+            raise HTTPException(status_code=500, detail=f"处理失败: {str(e)}")
+
+    @api_router.post("/video/tts_subtitle_video")
+    async def tts_subtitle_video_process(
+        video_path: str = Form(...),
+        text_content: str = Form(...),
+        feat_id: str = Form(None),
+        cfg_value: float = Form(2.0),
+        timesteps: int = Form(5),
+        max_len: int = Form(2000),
+        model_name: str = Form("small"),
+        device: str = Form("cpu"),
+        beam_size: int = Form(5),
+        audio_volume: float = Form(1.0),
+        keep_original_audio: bool = Form(True),
+        enable_llm_correction: bool = Form(True),
+        burn_subtitles: str = Form("hard"),
+        # Whisper 基础参数
+        vad_filter: bool = Form(True),
+        condition_on_previous_text: bool = Form(False),
+        temperature: float = Form(0.0),
+        # 字幕显示参数（后处理）
+        max_chars_per_line: int = Form(20),
+        max_lines_per_segment: int = Form(2),
+        out_basename: str = Form(None),
+        payload: Dict[str, Any] = Depends(verify_token)
+    ) -> Dict[str, Any]:
+        """
+        文本转语音 + 字幕生成 + 音视频合成（一站式处理）
+
+        自动进行以下操作：
+        1. 使用 VoxCPM-1.5 ONNX 将文本转为语音（支持参考音频特征）
+        2. 生成字幕文件（SRT格式）
+        3. 如果启用LLM纠错，使用文本内容作为参考文本进行字幕纠错
+        4. 将生成的音频与视频合成
+        5. 如果需要，烧录字幕到视频
+
+        Args:
+            video_path: 视频文件路径
+            text_content: 要合成的文本内容
+            feat_id: 参考音频特征ID（可选）
+            cfg_value: CFG引导强度（默认2.0）
+            timesteps: Diffusion推理步数（默认5）
+            max_len: 最大生成长度（默认2000）
+            model_name: Whisper模型名称（默认small）
+            device: 设备类型（默认cpu）
+            beam_size: beam search大小（默认5）
+            audio_volume: 音频音量倍数（默认1.0）
+            keep_original_audio: 是否保留原视频音频（默认False）
+            enable_llm_correction: 是否启用LLM字幕纠错（默认True）
+            burn_subtitles: 字幕烧录类型 (none/hard，默认hard)
+            out_basename: 输出文件名前缀
+            vad_filter: 启用 VAD 语音活动检测（默认True）
+            condition_on_previous_text: 不依赖前文分段（默认False），产生更自然的分段
+            temperature: 温度参数（默认0.0），控制预测的随机性
+            max_chars_per_line: 字幕每行最大字符数（默认20），超过会自动分割
+            max_lines_per_segment: 字幕每段最大行数（默认2），超过会自动分割
+            payload: 认证载荷
+
+        Returns:
+            Dict[str, Any]: 处理结果，包含以下文件路径
+                - audio_file: 生成的音频文件路径
+                - subtitle_file: 生成的字幕文件路径
+                - output_video: 合成的视频文件路径
+        """
+        try:
+            from utils.file_utils import FileUtils
+            
+            # 验证视频文件路径
+            video_file = Path(video_path)
+            if not video_file.exists():
+                raise HTTPException(status_code=404, detail=f"视频文件不存在: {video_path}")
+
+            Logger.info(f"开始TTS+字幕+视频合成处理: 视频={video_path}, 文本长度={len(text_content)}, 特征ID={feat_id}")
+
+            # 创建任务目录
+            job_dir = FileUtils.create_job_dir()
+            
+            # 生成输出文件名
+            if out_basename is None:
+                out_basename = f"tts_video_{FileUtils.generate_job_id()}"
+            
+            # 1. 文本转语音（TTS）
+            Logger.info("步骤1: 开始文本转语音...")
+            audio_output_path = job_dir / f"{out_basename}_audio.wav"
+            
+            tts_result = await tts_onnx_module.synthesize(
+                text=text_content,
+                prompt_wav=None,
+                prompt_text=None,
+                feat_id=feat_id,
+                cfg_value=cfg_value,
+                min_len=2,
+                max_len=max_len,
+                timesteps=timesteps,
+                output_path=audio_output_path
+            )
+            
+            if not tts_result["success"]:
+                raise HTTPException(status_code=500, detail=f"TTS合成失败: {tts_result.get('error', '未知错误')}")
+            
+            audio_file = tts_result["output_path"]
+            Logger.info(f"TTS合成成功: {audio_file}, 时长: {tts_result.get('duration', 0):.2f}s")
+
+            # 2. 字幕生成（使用同一个 job_dir）
+            Logger.info("步骤2: 开始生成字幕...")
+            subtitle_result = await subtitle_module.generate_subtitles_advanced(
+                input_type="path",
+                video_path=video_path,
+                audio_path=audio_file,
+                model_name=model_name,
+                device=device,
+                generate_subtitle=True,
+                bilingual=False,
+                word_timestamps=False,
+                burn_subtitles="none",  # 先不烧录，等音视频合成后再处理
+                beam_size=beam_size,
+                out_basename=out_basename,
+                duration_reference="video",
+                adjust_audio_speed=True,
+                audio_speed_factor=1.0,
+                audio_volume=audio_volume,
+                keep_original_audio=keep_original_audio,
+                enable_llm_correction=enable_llm_correction,
+                reference_text=text_content,  # 使用输入的文本内容作为参考文本
+                # Whisper 基础参数
+                vad_filter=vad_filter,
+                condition_on_previous_text=condition_on_previous_text,
+                temperature=temperature,
+                # 字幕显示参数（后处理）
+                max_chars_per_line=max_chars_per_line,
+                max_lines_per_segment=max_lines_per_segment,
+                job_dir=job_dir  # 传递 job_dir，确保在同一个目录下处理
+            )
+            
+            if not subtitle_result.get("success", False):
+                raise HTTPException(status_code=500, detail=f"字幕生成失败: {subtitle_result.get('error', '未知错误')}")
+            
+            subtitle_file = subtitle_result.get("subtitle_path")
+            temp_video = subtitle_result.get("video_with_subtitle_path")
+            
+            if not subtitle_file:
+                raise HTTPException(status_code=500, detail="字幕生成失败：未找到字幕文件")
+            
+            Logger.info(f"字幕生成成功: {subtitle_file}, 临时视频: {temp_video}")
+
+            # 3. 音视频合成（带字幕）
+            Logger.info("步骤3: 开始音视频合成...")
+            
+            # 如果需要烧录字幕，重新处理
+            if burn_subtitles == "hard":
+                Logger.info("烧录字幕到视频...")
+                output_video_path = job_dir / f"{out_basename}_final.mp4"
+                
+                # 检查临时视频文件是否存在
+                if not temp_video or not Path(temp_video).exists():
+                    Logger.warning(f"临时视频文件不存在: {temp_video}，使用原始视频")
+                    temp_video = str(video_file)
+                
+                if not Path(temp_video).exists():
+                    raise HTTPException(status_code=500, detail=f"视频文件不存在: {temp_video}")
+                
+                # 烧录字幕
+                try:
+                    MediaProcessor.burn_hardsub(
+                        video_path=Path(temp_video),
+                        srt_path=Path(subtitle_file),
+                        output_path=output_video_path
+                    )
+                    output_video = str(output_video_path)
+                    Logger.info(f"字幕烧录成功: {output_video}")
+                except Exception as e:
+                    raise HTTPException(status_code=500, detail=f"字幕烧录失败: {str(e)}")
+            else:
+                # 不烧录字幕，直接使用合成的视频
+                if not temp_video or not Path(temp_video).exists():
+                    raise HTTPException(status_code=500, detail="音视频合成失败：未找到输出视频文件")
+                output_video = temp_video
+
+            Logger.info(f"TTS+字幕+视频合成处理完成")
+
+            # 返回所有生成的文件路径
+            return {
+                "success": True,
+                "audio_file": str(audio_file),
+                "subtitle_file": str(subtitle_file),
+                "output_video": str(output_video),
+                "out_basename": out_basename,
+                "duration": tts_result.get("duration", 0),
+                "sample_rate": tts_result.get("sample_rate", 0)
+            }
+
+        except HTTPException:
+            raise
+        except Exception as e:
+            Logger.error(f"TTS+字幕+视频合成处理失败: {e}")
+            import traceback
+            Logger.error(traceback.format_exc())
+            raise HTTPException(status_code=500, detail=f"处理失败: {str(e)}")
+
+    # ==================== 综合处理（基于模板） ====================
+    @api_router.get("/batch/templates")
+    async def list_templates(
+        payload: Dict[str, Any] = Depends(verify_token)
+    ) -> Dict[str, Any]:
+        """
+        获取所有可用的模板列表
+
+        Args:
+            payload: 认证载荷
+
+        Returns:
+            Dict[str, Any]: 模板列表
+        """
+        from modules.template_manager import template_manager
+        
+        templates = []
+        for template_name in template_manager.get_template_names():
+            template_info = template_manager.get_template_info(template_name)
+            templates.append({
+                "name": template_info.get("name"),
+                "description": template_info.get("description"),
+                "version": template_info.get("version"),
+                "character": template_info.get("character"),
+                "theme": template_info.get("theme"),
+                "task_count": template_info.get("task_count"),
+                "parameters": list(template_info.get("parameters", {}).keys())
+            })
+        
+        return {
+            "success": True,
+            "count": len(templates),
+            "templates": templates
+        }
+
+    @api_router.get("/batch/template/{template_name}")
+    async def get_template_detail(
+        template_name: str,
+        payload: Dict[str, Any] = Depends(verify_token)
+    ) -> Dict[str, Any]:
+        """
+        获取指定模板的详细信息
+
+        Args:
+            template_name: 模板名称
+            payload: 认证载荷
+
+        Returns:
+            Dict[str, Any]: 模板详细信息
+        """
+        from modules.template_manager import template_manager
+        
+        template_info = template_manager.get_template_info(template_name)
+        if not template_info:
+            raise HTTPException(status_code=404, detail=f"模板不存在: {template_name}")
+        
+        return {
+            "success": True,
+            "template": template_info
+        }
+
+    @api_router.post("/batch/execute")
+    async def execute_template(
+        template_name: str = Form(...),
+        username: str = Form(""),
+        age: int = Form(6),
+        theme: str = Form("生日快乐"),
+        character: str = Form("奥特曼"),
+        sub_character: str = Form(""),
+        tts_text: str = Form(""),
+        user_images: UploadFile = File(None),
+        user_images_paths: str = Form(None),
+        payload: Dict[str, Any] = Depends(verify_token)
+    ) -> Dict[str, Any]:
+        """
+        执行模板（综合处理）
+
+        Args:
+            template_name: 模板名称
+            username: 用户名
+            age: 年龄
+            theme: 主题文字
+            character: 操作模板对象
+            sub_character: 二级对象
+            tts_text: TTS文本内容
+            user_images: 上传的用户图片文件（最多6张）
+            user_images_paths: 用户图片路径（多行文本，每行一个路径）
+            payload: 认证载荷
+
+        Returns:
+            Dict[str, Any]: 执行结果
+        """
+        from modules.task_orchestrator import task_orchestrator
+        from utils.file_utils import FileUtils
+        
+        try:
+            # 验证模板是否存在
+            from modules.template_manager import template_manager
+            if not template_manager.get_template(template_name):
+                raise HTTPException(status_code=404, detail=f"模板不存在: {template_name}")
+            
+            # 创建任务目录
+            job_dir = FileUtils.create_job_dir()
+            
+            # 准备参数
+            parameters = {
+                "username": username,
+                "age": age,
+                "theme": theme,
+                "character": character,
+                "sub_character": sub_character,
+                "tts_text": tts_text,
+                "user_images": []
+            }
+            
+            # 处理用户图片 - 优先使用上传方式
+            if user_images:
+                # 处理上传的图片
+                if hasattr(user_images, 'filename'):
+                    # 单个文件
+                    image_path = job_dir / user_images.filename
+                    with open(image_path, "wb") as f:
+                        f.write(await user_images.read())
+                    parameters["user_images"].append(str(image_path))
+            elif user_images_paths and user_images_paths.strip():
+                # 使用路径输入方式
+                paths = [p.strip() for p in user_images_paths.strip().split('\n') if p.strip()]
+                for path in paths[:6]:  # 最多6张图片
+                    parameters["user_images"].append(path)
+            
+            # 进度回调（用于日志记录）
+            async def progress_callback(progress_info):
+                Logger.info(f"任务进度: {progress_info['task_name']} - {progress_info['completed']}/{progress_info['total']} ({progress_info['progress']:.1%})")
+            
+            # 执行模板
+            result = await task_orchestrator.execute_template(
+                template_name,
+                parameters,
+                progress_callback
+            )
+            
+            # 使用统一的结果格式化工具
+            from utils.result_formatter import result_formatter
+            formatted_result = result_formatter.format_template_result(result)
+            
+            return formatted_result
+            
+        except HTTPException:
+            raise
+        except Exception as e:
+            Logger.error(f"模板执行失败: {e}")
+            import traceback
+            Logger.error(traceback.format_exc())
+            raise HTTPException(status_code=500, detail=f"模板执行失败: {str(e)}")
+
+    @api_router.post("/batch/execute_json")
+    async def execute_template_json(
+        request: Dict[str, Any],
+        payload: Dict[str, Any] = Depends(verify_token)
+    ) -> Dict[str, Any]:
+        """
+        执行模板（JSON格式，适合程序化调用）
+
+        Args:
+            request: JSON格式的请求体，包含：
+                - template_name: 模板名称
+                - parameters: 模板参数字典
+            payload: 认证载荷
+
+        Returns:
+            Dict[str, Any]: 执行结果
+        """
+        from modules.task_orchestrator import task_orchestrator
+        from modules.template_manager import template_manager
+        from utils.file_utils import FileUtils
+        
+        try:
+            template_name = request.get("template_name")
+            parameters = request.get("parameters", {})
+            
+            # 验证模板是否存在
+            if not template_manager.get_template(template_name):
+                raise HTTPException(status_code=404, detail=f"模板不存在: {template_name}")
+            
+            # 创建任务目录
+            job_dir = FileUtils.create_job_dir()
+            parameters["job_dir"] = str(job_dir)
+            
+            # 进度回调（用于日志记录）
+            async def progress_callback(progress_info):
+                Logger.info(f"任务进度: {progress_info['task_name']} - {progress_info['completed']}/{progress_info['total']} ({progress_info['progress']:.1%})")
+            
+            # 执行模板
+            result = await task_orchestrator.execute_template(
+                template_name,
+                parameters,
+                progress_callback
+            )
+            
+            # 使用统一的结果格式化工具
+            from utils.result_formatter import result_formatter
+            formatted_result = result_formatter.format_template_result(result)
+            
+            return formatted_result
+            
+        except HTTPException:
+            raise
+        except Exception as e:
+            Logger.error(f"模板执行失败: {e}")
+            import traceback
+            Logger.error(traceback.format_exc())
+            raise HTTPException(status_code=500, detail=f"模板执行失败: {str(e)}")
 
     # 注册路由器到应用
     app.include_router(api_router)

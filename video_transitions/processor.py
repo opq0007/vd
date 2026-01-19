@@ -179,6 +179,17 @@ class TransitionProcessor:
         
         out.release()
         
+        # 转换为浏览器兼容格式（H.264 + AAC）
+        try:
+            converted_path = VideoUtils.convert_to_browser_compatible(output_path)
+            if converted_path and converted_path.exists():
+                # 删除原始文件
+                output_path.unlink(missing_ok=True)
+                return str(converted_path)
+        except Exception as e:
+            # 如果转换失败，返回原始文件
+            print(f"视频格式转换失败，使用原始文件: {e}")
+        
         return str(output_path)
     
     def get_available_transitions(self) -> dict:

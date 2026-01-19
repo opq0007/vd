@@ -42,12 +42,6 @@ class SubtitleModule:
         beam_size: int = 5,
         subtitle_bottom_margin: int = 50,
         out_basename: Optional[str] = None,
-        # 花字配置
-        flower_config: Optional[Dict[str, Any]] = None,
-        # 插图配置
-        image_config: Optional[Dict[str, Any]] = None,
-        # 水印配置
-        watermark_config: Optional[Dict[str, Any]] = None,
         # 时长基准配置
         duration_reference: str = "video",  # "video" 或 "audio"，决定以哪个为准
         # 音频语速调整配置
@@ -86,9 +80,6 @@ class SubtitleModule:
             beam_size: beam search 大小
             subtitle_bottom_margin: 字幕下沿距离（像素）
             out_basename: 输出文件名前缀
-            flower_config: 花字配置
-            image_config: 插图配置
-            watermark_config: 水印配置
             duration_reference: 时长基准（video/audio）
             adjust_audio_speed: 是否自动调整音频语速
             audio_speed_factor: 音频语速调整倍数
@@ -96,6 +87,8 @@ class SubtitleModule:
             keep_original_audio: 是否保留原视频音频（默认True，保留并混合；False则替换原音频）
             enable_llm_correction: 是否启用 LLM 字幕纠错（使用智谱 AI）
             reference_text: 参考文本，用于字幕纠错
+            max_chars_per_line: 每行最大字符数
+            max_lines_per_segment: 每段最大行数
 
         Returns:
             Dict[str, Any]: 字幕生成结果
@@ -110,8 +103,11 @@ class SubtitleModule:
                 # 确保 job_dir 存在
                 job_dir = Path(job_dir)
                 job_dir.mkdir(parents=True, exist_ok=True)
-            
+
             out_basename = out_basename or f"output_{FileUtils.generate_job_id()}"
+
+            # 初始化错误信息收集列表
+            error_messages = []
 
             # 处理输入文件
             local_input = None  # 视频文件路径
@@ -413,7 +409,9 @@ class SubtitleModule:
                     base_video = merged_video_path
                     Logger.info(f"音视频合并成功: {merged_video_path}")
                 except Exception as e:
-                    Logger.error(f"音视频合并失败: {e}")
+                    error_msg = f"音视频合并失败: {str(e)}"
+                    Logger.error(error_msg)
+                    error_messages.append(error_msg)
                     # 合并失败，使用原始视频
                     if local_input and FileUtils.is_video_file(str(local_input)):
                         base_video = local_input
@@ -423,6 +421,9 @@ class SubtitleModule:
                         base_video = None
 
             # 烧录字幕
+            processing_success = True  # 标志变量，跟踪处理是否成功
+            error_messages = []  # 收集错误信息
+
             if burn_subtitles != "none" and srt_path and base_video:
                 srt_to_use = bilingual_srt_path if bilingual else srt_path
                 hardsub_video = job_dir / f"{out_basename}_hardsub{base_video.suffix}"
@@ -433,18 +434,26 @@ class SubtitleModule:
                     video_output = hardsub_video
                     Logger.info(f"硬字幕视频生成成功: {video_output}")
                 except Exception as e:
-                    Logger.error(f"硬字幕视频生成失败: {e}")
+                    error_msg = f"硬字幕视频生成失败: {str(e)}"
+                    Logger.error(error_msg)
                     import traceback
                     Logger.error(traceback.format_exc())
+                    error_messages.append(error_msg)
                     # 烧录失败，使用原始视频
                     video_output = base_video
+                    processing_success = False  # 标记为失败
 
             # 构建结果
             result = {
-                "success": True,
+                "success": processing_success,  # 使用标志变量
                 "out_basename": out_basename,
                 "segments_count": len(segments) if segments else 0
             }
+
+            # 如果处理失败，添加错误信息
+            if not processing_success and error_messages:
+                result["error"] = "; ".join(error_messages)
+                result["errors"] = error_messages  # 保留详细错误列表
 
             # 只添加实际存在的文件路径
             if srt_path and srt_path.exists():
@@ -598,110 +607,6 @@ class SubtitleModule:
 
         except Exception as e:
             Logger.error(f"Subtitle burning failed: {e}")
-            return {
-                "success": False,
-                "error": str(e)
-            }
-
-    async def add_watermark(
-        self,
-        video_path: Path,
-        watermark_text: Optional[str] = None,
-        watermark_image: Optional[str] = None,
-        position: str = "bottom_right",
-        opacity: float = 0.5,
-        output_path: Optional[Path] = None,
-        # 任务目录配置（可选）
-        job_dir: Optional[Path] = None  # 可选的任务目录，如果提供则使用该目录
-    ) -> Dict[str, Any]:
-        """
-        为视频添加水印
-
-        Args:
-            video_path: 视频文件路径
-            watermark_text: 水印文字
-            watermark_image: 水印图片路径
-            position: 水印位置
-            opacity: 透明度
-            output_path: 输出视频路径
-
-        Returns:
-            Dict[str, Any]: 添加水印结果
-        """
-        try:
-            # 创建任务目录（如果未提供）
-            if job_dir is None:
-                job_dir = FileUtils.create_job_dir()
-            else:
-                # 确保 job_dir 存在
-                job_dir = Path(job_dir)
-                job_dir.mkdir(parents=True, exist_ok=True)
-
-            if output_path is None:
-                output_path = job_dir / f"video_with_watermark_{FileUtils.generate_job_id()}.mp4"
-
-            # 构建水印配置
-            watermark_config = None
-            if watermark_text:
-                watermark_config = {
-                    'text': watermark_text,
-                    'font': 'Arial',
-                    'size': 20,
-                    'color': '#FFFFFF',
-                    'timing_type': '时间戳范围',
-                    'start_time': '00:00:00',
-                    'end_time': '99:59:59',
-                    'style': '半透明浮动'
-                }
-
-            # 应用水印效果（使用同一个 job_dir）
-            temp_video = job_dir / f"temp_watermark_{FileUtils.generate_job_id()}.mp4"
-
-            VideoEffectsProcessor.apply_video_effects(
-                video_path, temp_video,
-                flower_config=None,
-                image_config=None,
-                watermark_config=watermark_config
-            )
-
-            # 合并音频
-            from utils.system_utils import SystemUtils
-            import shutil
-            ffmpeg_path = SystemUtils.get_ffmpeg_path()
-            import os
-            original_cwd = os.getcwd()
-
-            output_dir = output_path.parent
-            os.chdir(output_dir)
-
-            video_rel = os.path.relpath(video_path, output_dir).replace('\\', '/')
-            temp_rel = temp_video.name
-            output_rel = output_path.name
-
-            cmd = [
-                ffmpeg_path, "-y",
-                "-i", video_rel,
-                "-i", temp_rel,
-                "-map", "0:a:0",
-                "-map", "1:v:0",
-                "-c:a", "copy",
-                "-c:v", "copy",
-                output_rel
-            ]
-
-            SystemUtils.run_cmd(cmd)
-            os.chdir(original_cwd)
-
-            Logger.info(f"Watermark added: {output_path}")
-
-            return {
-                "success": True,
-                "output_path": str(output_path),
-                "watermark_text": watermark_text
-            }
-
-        except Exception as e:
-            Logger.error(f"Watermark addition failed: {e}")
             return {
                 "success": False,
                 "error": str(e)
