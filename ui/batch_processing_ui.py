@@ -353,120 +353,22 @@ def generate_task_results_html(result: Dict[str, Any]) -> str:
     Returns:
         HTML字符串
     """
-    if not result.get("success"):
-        return "<div style='color: red;'>处理失败，无任务结果</div>"
-    
-    task_outputs = result.get("task_outputs", {})
-    total_tasks = result.get("total_tasks", 0)
-    completed_tasks = result.get("completed_tasks", 0)
-    
-    html = f"""
-    <div style="border: 1px solid #ddd; padding: 15px; border-radius: 5px; background-color: #f9f9f9;">
-        <h4 style="margin-top: 0; color: #333;">📋 任务执行详情</h4>
-        <p style="margin-bottom: 15px;">
-            <strong>总任务数:</strong> {total_tasks} | 
-            <strong>完成任务:</strong> {completed_tasks} | 
-            <strong>成功率:</strong> {completed_tasks/total_tasks*100:.1f}%
-        </p>
-        <table style="width: 100%; border-collapse: collapse; font-size: 14px;">
-            <thead>
-                <tr style="background-color: #4CAF50; color: white;">
-                    <th style="padding: 10px; text-align: left; border: 1px solid #ddd;">序号</th>
-                    <th style="padding: 10px; text-align: left; border: 1px solid #ddd;">任务名称</th>
-                    <th style="padding: 10px; text-align: left; border: 1px solid #ddd;">任务类型</th>
-                    <th style="padding: 10px; text-align: left; border: 1px solid #ddd;">状态</th>
-                    <th style="padding: 10px; text-align: left; border: 1px solid #ddd;">输出文件</th>
-                    <th style="padding: 10px; text-align: left; border: 1px solid #ddd;">备注</th>
-                </tr>
-            </thead>
-            <tbody>
-    """
-    
-    # 获取模板任务列表（按执行顺序）
-    template = template_manager.get_template(result.get("template_name", ""))
-    if template:
-        tasks = template.get("tasks", [])
-        for idx, task in enumerate(tasks, 1):
-            task_id = task["id"]
-            task_name = task["name"]
-            task_type = task["type"]
-            
-            # 获取任务执行结果
-            task_output = task_outputs.get(task_id, {})
-            
-            # 判断任务状态
-            if "error" in task_output:
-                status = "❌ 失败"
-                status_color = "#f44336"
-                error_msg = task_output.get("error", "未知错误")
-                output_files = "-"
-                remark = f"错误: {error_msg}"
-            elif task_output:
-                status = "✅ 成功"
-                status_color = "#4CAF50"
-                # 提取输出文件
-                output_files = extract_output_files_from_task(task_output)
-                remark = "执行成功"
-            else:
-                status = "⏭️ 跳过"
-                status_color = "#FF9800"
-                output_files = "-"
-                remark = "未执行"
-            
-            html += f"""
-                <tr style="background-color: {'#f5f5f5' if idx % 2 == 0 else 'white'};">
-                    <td style="padding: 8px; border: 1px solid #ddd;">{idx}</td>
-                    <td style="padding: 8px; border: 1px solid #ddd;">{task_name}</td>
-                    <td style="padding: 8px; border: 1px solid #ddd;">{task_type}</td>
-                    <td style="padding: 8px; border: 1px solid #ddd; color: {status_color}; font-weight: bold;">{status}</td>
-                    <td style="padding: 8px; border: 1px solid #ddd; font-size: 12px;">{output_files}</td>
-                    <td style="padding: 8px; border: 1px solid #ddd; font-size: 12px;">{remark}</td>
-                </tr>
-            """
-    
-    html += """
-            </tbody>
-        </table>
-    </div>
-    """
-    
-    return html
+    from utils.result_formatter import result_formatter
+    return result_formatter.generate_task_results_html(result)
 
 
 def extract_output_files_from_task(task_output: Dict[str, Any]) -> str:
     """
-    从任务输出中提取文件路径
+    从任务输出中提取文件路径（格式化为前端展示格式）
     
     Args:
         task_output: 任务输出
         
     Returns:
-        文件路径字符串
+        格式化的文件路径字符串（用于前端展示）
     """
-    files = []
-    
-    # 检查常见的输出字段
-    for key in ["output", "output_path", "audio_path", "video_path", "image_path", "output_file"]:
-        if key in task_output:
-            value = task_output[key]
-            if isinstance(value, str):
-                files.append(value)
-            elif isinstance(value, list):
-                files.extend([str(v) for v in value if v])
-    
-    # 如果没有找到，检查整个字典
-    if not files:
-        for key, value in task_output.items():
-            if isinstance(value, str) and ("output" in key.lower() or "path" in key.lower()):
-                files.append(value)
-    
-    # 限制显示的文件数量
-    if len(files) > 3:
-        return f"{files[0]} ... (+{len(files)-1} more)"
-    elif files:
-        return "<br>".join(files[:3])
-    else:
-        return "-"
+    from utils.result_formatter import result_formatter
+    return result_formatter.extract_output_files_from_task(task_output, format_for_display=True)
 
 
 def extract_final_video(result: Dict[str, Any]) -> Optional[str]:
@@ -479,24 +381,8 @@ def extract_final_video(result: Dict[str, Any]) -> Optional[str]:
     Returns:
         视频文件路径，如果没有则返回None
     """
-    task_outputs = result.get("task_outputs", {})
-    
-    # 查找视频合并任务的输出
-    for task_id, task_output in task_outputs.items():
-        if "error" not in task_output:
-            # 检查常见的视频输出字段
-            for key in ["output", "output_path", "video_path", "output_file"]:
-                if key in task_output:
-                    value = task_output[key]
-                    if isinstance(value, str) and value.endswith(('.mp4', '.avi', '.mov', '.mkv', '.webm')):
-                        return value
-                    elif isinstance(value, list) and value:
-                        # 检查列表中的第一个视频文件
-                        for item in value:
-                            if isinstance(item, str) and item.endswith(('.mp4', '.avi', '.mov', '.mkv', '.webm')):
-                                return item
-    
-    return None
+    from utils.result_formatter import result_formatter
+    return result_formatter.extract_final_video(result)
 
 
 def extract_output_files(result: Dict[str, Any]) -> Optional[str]:
