@@ -62,7 +62,9 @@ class SubtitleModule:
         max_chars_per_line: int = 20,  # 每行最大字符数
         max_lines_per_segment: int = 2,  # 每段最大行数
         # 任务目录配置（可选）
-        job_dir: Optional[Path] = None  # 可选的任务目录，如果提供则使用该目录
+        job_dir: Optional[Path] = None,  # 可选的任务目录，如果提供则使用该目录
+        # 模板目录配置（可选）
+        template_dir: Optional[str] = None  # 可选的模板目录，用于查找模板资源
     ) -> Dict[str, Any]:
         """
         高级字幕生成功能（完整版）
@@ -183,18 +185,54 @@ class SubtitleModule:
 
                 # 处理视频文件
                 if video_path:
-                    local_input = FileUtils.process_path_input(video_path, job_dir)
-                    Logger.info(f"处理视频路径: {video_path} -> {local_input}")
+                    try:
+                        local_input = FileUtils.process_path_input(video_path, job_dir)
+                        Logger.info(f"处理视频路径: {video_path} -> {local_input}")
+                    except FileNotFoundError as e:
+                        # 如果文件不存在，尝试从模板目录查找
+                        if template_dir:
+                            template_file = Path(template_dir) / video_path
+                            if template_file.exists():
+                                Logger.info(f"从模板目录找到文件: {template_file}")
+                                local_input = FileUtils.process_path_input(str(template_file), job_dir)
+                            else:
+                                raise FileNotFoundError(f"无法找到文件: {video_path} (模板目录: {template_dir})")
+                        else:
+                            raise e
 
                 # 处理音频文件（优先用于语音识别）
                 if audio_path:
-                    audio_input = FileUtils.process_path_input(audio_path, job_dir)
-                    Logger.info(f"处理音频路径: {audio_path} -> {audio_input}")
+                    try:
+                        audio_input = FileUtils.process_path_input(audio_path, job_dir)
+                        Logger.info(f"处理音频路径: {audio_path} -> {audio_input}")
+                    except FileNotFoundError as e:
+                        # 如果文件不存在，尝试从模板目录查找
+                        if template_dir:
+                            template_file = Path(template_dir) / audio_path
+                            if template_file.exists():
+                                Logger.info(f"从模板目录找到文件: {template_file}")
+                                audio_input = FileUtils.process_path_input(str(template_file), job_dir)
+                            else:
+                                raise FileNotFoundError(f"无法找到文件: {audio_path} (模板目录: {template_dir})")
+                        else:
+                            raise e
 
                 # 处理字幕文件
                 if subtitle_path:
-                    local_subtitle = FileUtils.process_path_input(subtitle_path, job_dir)
-                    Logger.info(f"处理字幕路径: {subtitle_path} -> {local_subtitle}")
+                    try:
+                        local_subtitle = FileUtils.process_path_input(subtitle_path, job_dir)
+                        Logger.info(f"处理字幕路径: {subtitle_path} -> {local_subtitle}")
+                    except FileNotFoundError as e:
+                        # 如果文件不存在，尝试从模板目录查找
+                        if template_dir:
+                            template_file = Path(template_dir) / subtitle_path
+                            if template_file.exists():
+                                Logger.info(f"从模板目录找到文件: {template_file}")
+                                local_subtitle = FileUtils.process_path_input(str(template_file), job_dir)
+                            else:
+                                raise FileNotFoundError(f"无法找到文件: {subtitle_path} (模板目录: {template_dir})")
+                        else:
+                            raise e
 
                 # 验证至少有一个输入文件
                 if not local_input and not audio_input:

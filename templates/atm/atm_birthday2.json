@@ -118,7 +118,7 @@
       "type": "video_transition",
       "params": {
         "video1": "background.png",
-        "video2": "${task3.output[0]}",
+        "video2": "${task3.output}",
         "transition_name": "crossfade",
         "total_frames": 100,
         "fps": 25,
@@ -133,7 +133,7 @@
       "type": "video_editor",
       "params": {
         "input": "out_2_${sub_character}.mp4",
-        "video_path": "${task6.output}",
+        "video_path": "${task6.output[0]}",
         "video_x": 10,
         "video_y": 10,
         "video_width": 450,

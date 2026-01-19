@@ -38,7 +38,9 @@ class VideoEditorModule:
         watermark_config: Optional[Dict[str, Any]] = None,
         out_basename: Optional[str] = None,
         # 任务目录配置（可选）
-        job_dir: Optional[Path] = None  # 可选的任务目录，如果提供则使用该目录
+        job_dir: Optional[Path] = None,  # 可选的任务目录，如果提供则使用该目录
+        # 模板目录配置（可选）
+        template_dir: Optional[str] = None  # 可选的模板目录，用于查找模板资源
     ) -> Dict[str, Any]:
         """
         应用视频效果
@@ -101,7 +103,20 @@ class VideoEditorModule:
             elif input_type == "path":
                 # 处理路径输入
                 if video_path:
-                    local_input = FileUtils.process_path_input(video_path, job_dir)
+                    # 先尝试直接处理路径
+                    try:
+                        local_input = FileUtils.process_path_input(video_path, job_dir)
+                    except FileNotFoundError as e:
+                        # 如果文件不存在，尝试从模板目录查找
+                        if template_dir:
+                            template_file = Path(template_dir) / video_path
+                            if template_file.exists():
+                                Logger.info(f"从模板目录找到文件: {template_file}")
+                                local_input = FileUtils.process_path_input(str(template_file), job_dir)
+                            else:
+                                raise FileNotFoundError(f"无法找到文件: {video_path} (模板目录: {template_dir})")
+                        else:
+                            raise e
                 if audio_path:
                     audio_input = FileUtils.process_path_input(audio_path, job_dir)
 

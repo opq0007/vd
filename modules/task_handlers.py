@@ -148,7 +148,9 @@ class TaskHandlers:
                     "max_chars_per_line": params.get("max_chars_per_line", 20),
                     "max_lines_per_segment": params.get("max_lines_per_segment", 2),
                     # 任务目录
-                    "job_dir": output_dir
+                    "job_dir": output_dir,
+                    # 模板目录
+                    "template_dir": params.get("template_dir")
                 }
                 
                 # 调用高级字幕生成模块
@@ -493,7 +495,8 @@ class TaskHandlers:
                     video_config=video_config,
                     # 使用 task_id 生成文件名
                     out_basename=f"{task_id}_video_editor",
-                    job_dir=output_dir
+                    job_dir=output_dir,
+                    template_dir=params.get("template_dir")  # 传递模板目录
                 )
 
                 # 检查处理结果
@@ -540,21 +543,52 @@ class TaskHandlers:
                 height = params.get("height", 640)
                 task_id = params.get("task_id", "transition")
                 
-                # 处理video1和video2参数（支持数组）
+                # 处理video1参数（支持数组，取第一个元素）
                 if isinstance(video1_path, list):
                     if video1_path:
                         video1_path = video1_path[0]
                     else:
                         raise ValueError("缺少第一个视频/图片路径")
                 
-                if isinstance(video2_path, list):
-                    if video2_path:
-                        video2_path = video2_path[0]
-                    else:
-                        raise ValueError("缺少第二个视频/图片路径")
+                if not video1_path:
+                    raise ValueError("缺少第一个视频/图片路径")
                 
-                if not video1_path or not video2_path:
-                    raise ValueError("缺少输入视频/图片路径")
+                # 处理video2_path参数（兼容字符串和数组）
+                if isinstance(video2_path, str):
+                    # 如果是字符串，尝试解析
+                    if video2_path == "[]" or video2_path == "" or video2_path == "''":
+                        video2_path = []
+                    else:
+                        # 可能是JSON字符串或Python列表字符串表示
+                        try:
+                            import json
+                            video2_path = json.loads(video2_path)
+                            Logger.info(f"JSON解析后的video2_path: {video2_path}")
+                        except Exception as json_error:
+                            # JSON解析失败，尝试Python literal_eval
+                            try:
+                                import ast
+                                video2_path = ast.literal_eval(video2_path)
+                                Logger.info(f"Python literal_eval解析后的video2_path: {video2_path}")
+                            except Exception as ast_error:
+                                # 都解析失败，将其作为单个路径
+                                Logger.warning(f"JSON解析失败({json_error}), Python literal_eval失败({ast_error}), 将作为单个路径处理")
+                                video2_path = [video2_path]
+                
+                # 确保 video2_path 是列表
+                if not isinstance(video2_path, list):
+                    video2_path = [video2_path] if video2_path else []
+                
+                # 过滤掉空值、空列表和字符串"[]"
+                video2_path = [
+                    path for path in video2_path 
+                    if path and not (isinstance(path, list) and len(path) == 0) and path not in ["[]", "''"]
+                ]
+                
+                if not video2_path:
+                    raise ValueError("缺少第二个视频/图片路径")
+                
+                Logger.info(f"过滤后的video2_path: {video2_path}, 数量={len(video2_path)}")
                 
                 # 创建输出目录（使用共享目录或创建新目录）
                 job_dir = params.get("job_dir")
@@ -568,33 +602,57 @@ class TaskHandlers:
                 # 传递 template_dir 参数，用于查找模板资源
                 template_dir = params.get("template_dir")
                 
-                result = await transition_module.apply_transition(
-                    video1_path=video1_path,
-                    video2_path=video2_path,
-                    transition_name=transition_name,
-                    total_frames=total_frames,
-                    fps=fps,
-                    width=width,
-                    height=height,
-                    job_dir=output_dir,
-                    template_dir=template_dir,
-                    output_basename=f"{task_id}_transition"  # 使用 task_id 作为输出文件名前缀
-                )
+                output_files = []
                 
-                # transition_module.apply_transition 返回的是字典，不是元组
-                if result.get("success"):
-                    output_path = result.get("output_path", "")
-                    Logger.info(f"视频转场任务完成: {output_path}")
-                    return {
-                        "success": True,
-                        "output": output_path
-                    }
-                else:
-                    Logger.error(f"视频转场任务失败: {result.get('error')}")
+                # 遍历每个 video2_path 进行转场处理
+                for i, v2_path in enumerate(video2_path):
+                    # 确保路径是字符串
+                    if isinstance(v2_path, list):
+                        if v2_path:
+                            v2_path = v2_path[0]
+                        else:
+                            Logger.warning(f"第{i+1}个video2_path为空，跳过")
+                            continue
+                    
+                    # 跳过无效路径
+                    if v2_path in ["[]", "''", ""] or not v2_path:
+                        Logger.warning(f"第{i+1}个video2_path无效，跳过")
+                        continue
+                    
+                    Logger.info(f"处理第{i+1}个转场: video1={video1_path}, video2={v2_path}")
+                    
+                    result = await transition_module.apply_transition(
+                        video1_path=video1_path,
+                        video2_path=v2_path,
+                        transition_name=transition_name,
+                        total_frames=total_frames,
+                        fps=fps,
+                        width=width,
+                        height=height,
+                        job_dir=output_dir,
+                        template_dir=template_dir,
+                        output_basename=f"{task_id}_transition_{i}"  # 使用 task_id 和索引作为输出文件名前缀
+                    )
+                    
+                    if result.get("success"):
+                        output_files.append(result.get("output_path", ""))
+                        Logger.info(f"第{i+1}个转场任务完成: {result.get('output_path')}")
+                    else:
+                        Logger.error(f"第{i+1}个转场任务失败: {result.get('error')}")
+                
+                if not output_files:
                     return {
                         "success": False,
-                        "error": result.get("error", "未知错误")
+                        "error": "所有转场任务都失败了"
                     }
+                
+                Logger.info(f"视频转场任务完成: 处理了 {len(output_files)} 个转场")
+                
+                # 返回数组结果
+                return {
+                    "success": True,
+                    "output": output_files
+                }
                 
             except Exception as e:
                 Logger.error(f"视频转场任务失败: {e}")
@@ -604,7 +662,7 @@ class TaskHandlers:
                 }
         
         self._handlers["video_transition"] = transition_handler
-        Logger.info("注册视频转场任务处理器")
+        Logger.info("注册视频转场任务处理器（支持数组输入）")
     
     def _register_video_merge_handler(self):
         """注册视频合并任务处理器"""

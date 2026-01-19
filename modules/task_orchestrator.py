@@ -111,7 +111,10 @@ class TaskOrchestrator:
                     path_suffixes = (
                         '_path', '_file', '_image', '_video', '_audio',
                         '_images', '_videos', '_audios',
-                        '_paths', '_files'
+                        '_paths', '_files',
+                        'input',  # 添加 input 参数，用于 video_editor 等任务
+                        'video1',  # 添加 video1 参数，用于 video_transition 任务
+                        'video2'   # 添加 video2 参数，用于 video_transition 任务
                     )
                     
                     # 检查参数中的路径是否需要解析
