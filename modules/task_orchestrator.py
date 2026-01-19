@@ -10,7 +10,7 @@ from typing import Dict, Any, List, Optional, Callable
 from utils.logger import Logger
 from utils.file_utils import FileUtils
 from modules.template_manager import template_manager
-from modules.parameter_resolver import parameter_resolver
+from modules.parameter_resolver import parameter_resolver, ParameterResolver
 from modules.task_handlers import task_handlers
 
 
@@ -88,8 +88,9 @@ class TaskOrchestrator:
             
             try:
                 # 解析任务参数
+                original_params = task.get("params", {})
                 resolved_params = parameter_resolver.resolve(
-                    task.get("params", {}),
+                    original_params,
                     parameters,
                     task_outputs
                 )
@@ -105,8 +106,32 @@ class TaskOrchestrator:
                 # 解析模板中的资源路径（相对于模板目录）
                 if "template_dir" in template:
                     template_dir = Path(template["template_dir"])
+                    
+                    # 定义路径参数的后缀模式（使用后缀匹配替代白名单）
+                    path_suffixes = (
+                        '_path', '_file', '_image', '_video', '_audio',
+                        '_images', '_videos', '_audios',
+                        '_paths', '_files'
+                    )
+                    
                     # 检查参数中的路径是否需要解析
                     for key, value in resolved_params.items():
+                        # 检查参数名是否以路径相关的后缀结尾
+                        is_path_param = any(key.endswith(suffix) for suffix in path_suffixes)
+                        
+                        if not is_path_param:
+                            Logger.debug(f"跳过非路径参数: {key}")
+                            continue
+                        
+                        # 检查原始值是否是占位符
+                        original_value = original_params.get(key)
+                        is_placeholder = isinstance(original_value, str) and ParameterResolver.PARAM_PATTERN.search(original_value)
+                        
+                        # 只有当原始值不是占位符时，才尝试在模板目录下查找
+                        if is_placeholder:
+                            Logger.debug(f"跳过占位符参数: {key} (原始值: {original_value})")
+                            continue
+                            
                         if isinstance(value, str) and not Path(value).is_absolute():
                             # 检查是否是包含换行符的多行字符串（如视频合并任务的 videos 参数）
                             if '\n' in value:
@@ -121,8 +146,8 @@ class TaskOrchestrator:
                                             resolved_lines.append(str(template_resource))
                                             Logger.debug(f"解析模板资源路径（多行）: {line} -> {template_resource}")
                                         else:
-                                            Logger.warning(f"模板资源文件不存在: {line}")
-                                            resolved_lines.append(line)
+                                            # 抛出异常，而不是只记录警告
+                                            raise FileNotFoundError(f"模板资源文件不存在: {template_resource}")
                                     else:
                                         resolved_lines.append(line)
                                 resolved_params[key] = '\n'.join(resolved_lines)
@@ -134,7 +159,8 @@ class TaskOrchestrator:
                                     resolved_params[key] = str(template_resource)
                                     Logger.info(f"解析模板资源路径: {value} -> {template_resource}")
                                 else:
-                                    Logger.warning(f"模板资源文件不存在: {template_resource}")
+                                    # 抛出异常，而不是只记录警告
+                                    raise FileNotFoundError(f"模板资源文件不存在: {template_resource}")
                         elif isinstance(value, list):
                             # 处理数组类型的参数
                             resolved_list = []
@@ -146,8 +172,8 @@ class TaskOrchestrator:
                                         resolved_list.append(str(template_resource))
                                         Logger.debug(f"解析模板资源路径（数组）: {item} -> {template_resource}")
                                     else:
-                                        Logger.warning(f"模板资源文件不存在: {item}")
-                                        resolved_list.append(item)
+                                        # 抛出异常，而不是只记录警告
+                                        raise FileNotFoundError(f"模板资源文件不存在: {template_resource}")
                                 else:
                                     resolved_list.append(item)
                             resolved_params[key] = resolved_list

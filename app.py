@@ -13,7 +13,7 @@
 import os
 import logging
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse
 
@@ -82,6 +82,47 @@ app.add_middleware(
 register_routes(app)
 
 # ----------------------------
+# 全局异常处理器 - 统一响应格式
+# ----------------------------
+from fastapi import Request, status
+from fastapi.responses import JSONResponse
+from api.response_formatter import response_formatter
+from fastapi.exceptions import RequestValidationError
+
+
+@app.exception_handler(HTTPException)
+async def http_exception_handler(request: Request, exc: HTTPException):
+    """处理 HTTPException，返回统一的响应格式"""
+    return JSONResponse(
+        status_code=exc.status_code,
+        content=response_formatter.error(
+            message=exc.detail,
+            error_code=f"HTTP_{exc.status_code}"
+        )
+    )
+
+
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    """处理请求验证异常，返回统一的响应格式"""
+    return JSONResponse(
+        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+        content=response_formatter.error(
+            message=f"请求参数验证失败: {str(exc)}",
+            error_code="VALIDATION_ERROR"
+        )
+    )
+
+
+@app.exception_handler(Exception)
+async def general_exception_handler(request: Request, exc: Exception):
+    """处理所有未捕获的异常，返回统一的响应格式"""
+    return JSONResponse(
+        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        content=response_formatter.wrap_exception(exc, "服务器内部错误")
+    )
+
+# ----------------------------
 # Gradio 界面
 # ----------------------------
 def create_gradio_interface():
@@ -89,13 +130,22 @@ def create_gradio_interface():
 
     custom_css = get_custom_css()
 
-    with gr.Blocks(
-        css=custom_css,
-        title="整合版 Whisper 语音转文字服务",
-        theme=gr.themes.Soft(),
-        analytics_enabled=False,
-        delete_cache=(1800, 1800)  # 30分钟清理缓存
-    ) as demo:
+    # 使用 kwargs 来避免 Gradio 6.0+ 的警告
+    blocks_kwargs = {
+        "title": "整合版 Whisper 语音转文字服务",
+        "analytics_enabled": False,
+        "delete_cache": (1800, 1800),  # 30分钟清理缓存
+    }
+    
+    # 只有在 Gradio < 6.0 时才在 Blocks 构造函数中设置 css
+    import gradio as gr_module
+    if hasattr(gr_module, '__version__'):
+        version_parts = gr_module.__version__.split('.')
+        major_version = int(version_parts[0]) if version_parts else 0
+        if major_version < 6:
+            blocks_kwargs["css"] = custom_css
+
+    with gr.Blocks(**blocks_kwargs) as demo:
         # 页面头部
         create_header()
 

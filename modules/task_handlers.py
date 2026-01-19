@@ -66,10 +66,19 @@ class TaskHandlers:
                         text=text,
                         prompt_wav=reference_audio,
                         output_path=output_path
-                    )
-                
+                )
+
+                # 检查处理结果
+                if not result.get("success", False):
+                    error_msg = result.get("error", "TTS任务失败")
+                    Logger.error(f"TTS任务失败: {error_msg}")
+                    return {
+                        "success": False,
+                        "error": error_msg
+                    }
+
                 Logger.info(f"TTS任务完成: {output_path}")
-                
+
                 return {
                     "success": True,
                     "output": str(output_path),
@@ -144,9 +153,18 @@ class TaskHandlers:
                 
                 # 调用高级字幕生成模块
                 result = await subtitle_module.generate_subtitles_advanced(**subtitle_params)
-                
+
+                # 检查处理结果
+                if not result.get("success", False):
+                    error_msg = result.get("error", "字幕任务失败")
+                    Logger.error(f"字幕任务失败: {error_msg}")
+                    return {
+                        "success": False,
+                        "error": error_msg
+                    }
+
                 Logger.info(f"高级字幕任务完成: LLM纠错={subtitle_params['enable_llm_correction']}, 后处理启用")
-                
+
                 # 返回视频文件路径作为主要输出（因为视频才是最终需要的）
                 # 字幕文件路径仍然可以通过 subtitle_path 字段获取
                 return {
@@ -305,10 +323,12 @@ class TaskHandlers:
                             if processed_path and Path(processed_path).exists():
                                 shutil.copy2(processed_path, output_file)
                             else:
-                                # 如果处理失败，复制原文件
-                                shutil.copy2(image_path, output_file)
+                                # 如果处理失败，抛出异常
+                                raise FileNotFoundError(f"图像处理失败，输出文件不存在: {processed_path}")
                         else:
                             # 不需要处理，直接复制原文件
+                            if not Path(image_path).exists():
+                                raise FileNotFoundError(f"输入图片文件不存在: {image_path}")
                             shutil.copy2(image_path, output_file)
                         
                         output_files.append(str(output_file))
@@ -475,11 +495,20 @@ class TaskHandlers:
                     out_basename=f"{task_id}_video_editor",
                     job_dir=output_dir
                 )
-                
+
+                # 检查处理结果
+                if not result.get("success", False):
+                    error_msg = result.get("error", "视频编辑任务失败")
+                    Logger.error(f"视频编辑任务失败: {error_msg}")
+                    return {
+                        "success": False,
+                        "error": error_msg
+                    }
+
                 # 获取实际的输出文件路径
                 actual_output = result.get("video_output_path", str(output_path))
                 Logger.info(f"视频编辑任务完成: {actual_output}")
-                
+
                 return {
                     "success": True,
                     "output": actual_output
@@ -611,9 +640,18 @@ class TaskHandlers:
                     job_dir=output_dir,
                     delete_intermediate_videos=delete_intermediate_videos
                 )
-                
+
+                # 检查处理结果
+                if not result.get("success", False):
+                    error_msg = result.get("error", "视频合并任务失败")
+                    Logger.error(f"视频合并任务失败: {error_msg}")
+                    return {
+                        "success": False,
+                        "error": error_msg
+                    }
+
                 Logger.info(f"视频合并任务完成: {result.get('output_path', '')}, 删除中间文件: {delete_intermediate_videos}")
-                
+
                 return {
                     "success": True,
                     "output": result.get("output_path", "")
