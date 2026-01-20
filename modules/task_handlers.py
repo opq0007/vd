@@ -13,11 +13,88 @@ from utils.file_utils import FileUtils
 
 class TaskHandlers:
     """任务处理器集合"""
-    
+
+    # 统一的参数命名规范
+    # 单个输入：input_video, input_audio, input_image, input_subtitle
+    # 第二个输入（相同类型）：input2_video, input2_audio, input2_image, input2_subtitle
+    # 多个输入（列表）：input_videos, input_audios, input_images, input_subtitles
+    # 输出：output_name
+    # 其他：保持原有命名
+
     def __init__(self):
         self._handlers = {}
         self._initialize_handlers()
-    
+
+    def _normalize_params(self, params: Dict[str, Any], task_type: str) -> Dict[str, Any]:
+        """
+        标准化参数名称，将各种不同的参数名转换为统一的参数名
+
+        Args:
+            params: 原始参数字典
+            task_type: 任务类型
+
+        Returns:
+            标准化后的参数字典
+        """
+        normalized = params.copy()
+
+        # 根据任务类型应用不同的映射规则
+        if task_type == "tts":
+            # TTS 任务：text 保持不变，reference_audio -> input_audio
+            if "reference_audio" in normalized and "input_audio" not in normalized:
+                normalized["input_audio"] = normalized["reference_audio"]
+        elif task_type == "subtitle":
+            # 字幕任务：video -> input_video, audio -> input_audio, subtitle -> input_subtitle
+            if "video" in normalized and "input_video" not in normalized:
+                normalized["input_video"] = normalized["video"]
+            if "audio" in normalized and "input_audio" not in normalized:
+                normalized["input_audio"] = normalized["audio"]
+            if "subtitle" in normalized and "input_subtitle" not in normalized:
+                normalized["input_subtitle"] = normalized["subtitle"]
+        elif task_type == "image_process":
+            # 图片处理任务：base_image -> input_image, overlay_images -> input_images
+            if "base_image" in normalized and "input_image" not in normalized:
+                normalized["input_image"] = normalized["base_image"]
+            if "overlay_images" in normalized and "input_images" not in normalized:
+                normalized["input_images"] = normalized["overlay_images"]
+            if "images" in normalized and "input_images" not in normalized:
+                normalized["input_images"] = normalized["images"]
+        elif task_type == "video_editor":
+            # 视频编辑任务：input -> input_video, video_path -> input_video
+            if "input" in normalized and "input_video" not in normalized:
+                normalized["input_video"] = normalized["input"]
+            if "video_path" in normalized and "input_video" not in normalized:
+                normalized["input_video"] = normalized["video_path"]
+            # 第二个视频参数（插入的视频）
+            if "video_path" in normalized and "video_path" not in normalized:
+                normalized["input2_video"] = normalized["video_path"]
+            # 图片参数
+            if "image" in normalized and "input_image" not in normalized:
+                normalized["input_image"] = normalized["image"]
+            if "images" in normalized and "input_images" not in normalized:
+                normalized["input_images"] = normalized["images"]
+            # 音频参数
+            if "add_audio" in normalized and "input_audio" not in normalized:
+                normalized["input_audio"] = normalized["add_audio"]
+        elif task_type == "video_transition":
+            # 视频转场任务：video1 -> input_video, video2 -> input2_video（单个）或 input2_videos（列表）
+            if "video1" in normalized and "input_video" not in normalized:
+                normalized["input_video"] = normalized["video1"]
+            if "video2" in normalized:
+                # 判断 video2 是单个还是列表
+                if isinstance(normalized["video2"], list):
+                    if "input2_videos" not in normalized:
+                        normalized["input2_videos"] = normalized["video2"]
+                else:
+                    if "input2_video" not in normalized:
+                        normalized["input2_video"] = normalized["video2"]
+        elif task_type == "video_merge":
+            # 视频合并任务：videos -> input_videos
+            if "videos" in normalized and "input_videos" not in normalized:
+                normalized["input_videos"] = normalized["videos"]
+
+        return normalized
+
     def _initialize_handlers(self):
         """初始化所有任务处理器"""
         self._register_tts_handler()
@@ -33,12 +110,19 @@ class TaskHandlers:
             """TTS任务处理器"""
             try:
                 from modules.tts_onnx_module import tts_onnx_module
-                
-                text = params.get("text", "")
-                reference_audio = params.get("reference_audio")
-                feat_id = params.get("feat_id")
+
+                # 标准化参数名称
+                normalized_params = self._normalize_params(params, "tts")
+
+                text = normalized_params.get("text", "")
+                input_audio = normalized_params.get("input_audio")  # 标准化后的参数名
+                reference_audio = params.get("reference_audio")  # 兼容旧参数名
+                feat_id = normalized_params.get("feat_id")
                 task_id = params.get("task_id", "tts")
-                
+
+                # 优先使用标准化参数，如果不存在则使用旧参数
+                audio_input = input_audio if input_audio is not None else reference_audio
+
                 # 创建输出目录（使用共享目录或创建新目录）
                 job_dir = params.get("job_dir")
                 if job_dir:
@@ -46,10 +130,10 @@ class TaskHandlers:
                     output_dir.mkdir(parents=True, exist_ok=True)
                 else:
                     output_dir = FileUtils.create_job_dir()
-                
+
                 # 使用 task_id 生成文件名
                 output_path = output_dir / f"{task_id}_tts.wav"
-                
+
                 # 调用TTS模块
                 if feat_id:
                     # 使用预编码特征方式
@@ -61,10 +145,10 @@ class TaskHandlers:
                     )
                 else:
                     # 使用参考音频方式
-                    Logger.info(f"使用参考音频方式调用TTS: reference_audio={reference_audio}")
+                    Logger.info(f"使用参考音频方式调用TTS: audio_input={audio_input}")
                     result = await tts_onnx_module.synthesize(
                         text=text,
-                        prompt_wav=reference_audio,
+                        prompt_wav=audio_input,
                         output_path=output_path
                 )
 
@@ -84,14 +168,14 @@ class TaskHandlers:
                     "output": str(output_path),
                     "duration": result.get("duration", 0)
                 }
-                
+
             except Exception as e:
                 Logger.error(f"TTS任务失败: {e}")
                 return {
                     "success": False,
                     "error": str(e)
                 }
-        
+
         self._handlers["tts"] = tts_handler
         Logger.info("注册TTS任务处理器")
     
@@ -101,18 +185,21 @@ class TaskHandlers:
             """字幕任务处理器（高级功能）"""
             try:
                 from modules.subtitle_module import subtitle_module
-                
-                # 获取输入参数
-                video_input = params.get("video", "")
-                audio_input = params.get("audio", "")
-                subtitle_input = params.get("subtitle", "")
+
+                # 标准化参数名称
+                normalized_params = self._normalize_params(params, "subtitle")
+
+                # 获取输入参数（优先使用标准化参数，如果不存在则使用旧参数）
+                video_input = normalized_params.get("input_video") or params.get("video", "")
+                audio_input = normalized_params.get("input_audio") or params.get("audio", "")
+                subtitle_input = normalized_params.get("input_subtitle") or params.get("subtitle", "")
                 reference_text = params.get("reference_text", "")
                 task_id = params.get("task_id", "subtitle")
-                
+
                 # 至少需要一个输入（视频或音频）
                 if not video_input and not audio_input and not subtitle_input:
                     raise ValueError("缺少输入：需要提供视频、音频或字幕文件")
-                
+
                 # 创建输出目录（使用共享目录或创建新目录）
                 job_dir = params.get("job_dir")
                 if job_dir:
@@ -120,10 +207,10 @@ class TaskHandlers:
                     output_dir.mkdir(parents=True, exist_ok=True)
                 else:
                     output_dir = FileUtils.create_job_dir()
-                
+
                 # 确定输入类型
                 input_type = "path"
-                
+
                 # 准备参数
                 subtitle_params = {
                     "input_type": input_type,
@@ -152,7 +239,7 @@ class TaskHandlers:
                     # 模板目录
                     "template_dir": params.get("template_dir")
                 }
-                
+
                 # 调用高级字幕生成模块
                 result = await subtitle_module.generate_subtitles_advanced(**subtitle_params)
 
@@ -205,14 +292,17 @@ class TaskHandlers:
                 
                 task_id = params.get("task_id", "image_process")
                 
-                # 检查是否为图片混合模式
-                base_image = params.get("base_image", "")
-                overlay_images = params.get("overlay_images", [])
-                
+                # 标准化参数名称
+                normalized_params = self._normalize_params(params, "image_process")
+
+                # 获取输入参数（优先使用标准化参数，如果不存在则使用旧参数）
+                base_image = normalized_params.get("input_image") or params.get("base_image", "")
+                overlay_images = normalized_params.get("input_images") or params.get("overlay_images") or params.get("images", [])
+
                 if base_image and overlay_images:
                     # 图片混合模式
                     Logger.info(f"图片混合模式: 基础图片={base_image}, 叠加图片={overlay_images}, 类型={type(overlay_images)}")
-                    
+
                     # 处理 overlay_images 参数
                     if isinstance(overlay_images, str):
                         # 如果是字符串，尝试解析
@@ -234,28 +324,28 @@ class TaskHandlers:
                                     # 都解析失败，将其作为单个路径
                                     Logger.warning(f"JSON解析失败({json_error}), Python literal_eval失败({ast_error}), 将作为单个路径处理")
                                     overlay_images = [overlay_images]
-                    
+
                     # 确保 overlay_images 是列表
                     if not isinstance(overlay_images, list):
                         overlay_images = [overlay_images] if overlay_images else []
-                    
+
                     # 过滤掉空值、空列表和字符串"[]"
                     overlay_images = [
-                        img for img in overlay_images 
+                        img for img in overlay_images
                         if img and not (isinstance(img, list) and len(img) == 0) and img not in ["[]", "''"]
                     ]
-                    
+
                     if not overlay_images:
                         Logger.warning("没有有效的叠加图片，跳过图片混合")
                         return {
                             "success": True,
                             "output": []
                         }
-                    
+
                     Logger.info(f"过滤后的叠加图片: {overlay_images}, 数量={len(overlay_images)}")
-                    
+
                     output_files = []
-                    
+
                     # 对每张叠加图片进行混合
                     for i, overlay_image_path in enumerate(overlay_images):
                         # 确保路径是字符串
@@ -265,14 +355,14 @@ class TaskHandlers:
                             else:
                                 Logger.warning(f"第{i+1}张叠加图片为空，跳过")
                                 continue
-                        
+
                         # 跳过无效路径
                         if overlay_image_path in ["[]", "''", ""] or not overlay_image_path:
                             Logger.warning(f"第{i+1}张叠加图片无效，跳过")
                             continue
-                        
+
                         Logger.info(f"处理第{i+1}张叠加图片: {overlay_image_path}, 类型={type(overlay_image_path)}")
-                        
+
                         # 使用 task_id 生成文件名
                         result = await image_processing_module.blend_images(
                             base_image_path=base_image,
@@ -287,21 +377,21 @@ class TaskHandlers:
                             output_path=output_dir / f"{task_id}_image_process_{i}.png",
                             job_dir=output_dir
                         )
-                        
+
                         if result["success"]:
                             output_files.append(result["output_path"])
                         else:
                             Logger.error(f"图片混合失败（第{i+1}张）: {result.get('error')}")
-                    
+
                     Logger.info(f"图片混合任务完成: 处理了 {len(output_files)} 张图片")
-                    
+
                     return {
                         "success": True,
                         "output": output_files
                     }
                 else:
                     # 原有的图片处理模式
-                    images = params.get("images", [])
+                    images = normalized_params.get("input_images") or params.get("images", [])
                     remove_bg = params.get("remove_bg", False)
                     resize = params.get("resize", "")
                     
@@ -359,21 +449,25 @@ class TaskHandlers:
             """视频编辑任务处理器"""
             try:
                 from modules.video_editor_module import video_editor_module
-                
-                input_path = params.get("input", "")
-                add_audio = params.get("add_audio", "")
+
+                # 标准化参数名称
+                normalized_params = self._normalize_params(params, "video_editor")
+
+                # 获取输入参数（优先使用标准化参数，如果不存在则使用旧参数）
+                input_path = normalized_params.get("input_video") or params.get("input", "")
+                add_audio = normalized_params.get("input_audio") or params.get("add_audio", "")
                 task_id = params.get("task_id", "video_editor")
-                
+
                 # 处理input参数（支持数组）
                 if isinstance(input_path, list):
                     if input_path:
                         input_path = input_path[0]
                     else:
                         raise ValueError("输入视频路径为空")
-                
+
                 if not input_path:
                     raise ValueError("缺少输入视频路径")
-                
+
                 # 创建输出目录（使用共享目录或创建新目录）
                 job_dir = params.get("job_dir")
                 if job_dir:
@@ -434,19 +528,19 @@ class TaskHandlers:
                 
                 # 准备插图配置
                 image_config = None
-                image = params.get("image", "")
-                images = params.get("images", "")
-                
+                image = normalized_params.get("input_image") or params.get("image", "")
+                images = normalized_params.get("input_images") or params.get("images", "")
+
                 # 支持单数和复数参数名
                 image_path = image if image else images
-                
+
                 # 处理数组类型的输入
                 if isinstance(image_path, list):
                     if image_path:
                         image_path = image_path[0]
                     else:
                         image_path = ""
-                
+
                 if image_path:
                     image_config = {
                         'path': image_path,  # 使用 'path' 而不是 'image_path'
@@ -462,10 +556,11 @@ class TaskHandlers:
                         'end_time': '99:59:59'
                     }
                     Logger.info(f"插图配置: image_path={image_path}, x={params.get('x', 800)}, y={params.get('y', 200)}")
-                
+
                 # 准备插视频配置
                 video_config = None
-                video_path = params.get("video_path", "")
+                # 第二个视频参数（插入的视频）
+                video_path = normalized_params.get("input2_video") or params.get("video_path", "")
                 if video_path:
                     video_config = {
                         'path': video_path,
@@ -533,26 +628,31 @@ class TaskHandlers:
             """视频转场任务处理器"""
             try:
                 from modules.transition_module import transition_module
-                
-                video1_path = params.get("video1", "")
-                video2_path = params.get("video2", "")
+
+                # 标准化参数名称
+                normalized_params = self._normalize_params(params, "video_transition")
+
+                # 获取输入参数（优先使用标准化参数，如果不存在则使用旧参数）
+                video1_path = normalized_params.get("input_video") or params.get("video1", "")
+                # 第二个视频可以是单个（input2_video）或列表（input2_videos）
+                video2_path = normalized_params.get("input2_videos") or normalized_params.get("input2_video") or params.get("video2", "")
                 transition_name = params.get("transition_name", "crossfade")
                 total_frames = params.get("total_frames", 30)
                 fps = params.get("fps", 30)
                 width = params.get("width", 640)
                 height = params.get("height", 640)
                 task_id = params.get("task_id", "transition")
-                
+
                 # 处理video1参数（支持数组，取第一个元素）
                 if isinstance(video1_path, list):
                     if video1_path:
                         video1_path = video1_path[0]
                     else:
                         raise ValueError("缺少第一个视频/图片路径")
-                
+
                 if not video1_path:
                     raise ValueError("缺少第一个视频/图片路径")
-                
+
                 # 处理video2_path参数（兼容字符串和数组）
                 if isinstance(video2_path, str):
                     # 如果是字符串，尝试解析
@@ -574,17 +674,17 @@ class TaskHandlers:
                                 # 都解析失败，将其作为单个路径
                                 Logger.warning(f"JSON解析失败({json_error}), Python literal_eval失败({ast_error}), 将作为单个路径处理")
                                 video2_path = [video2_path]
-                
+
                 # 确保 video2_path 是列表
                 if not isinstance(video2_path, list):
                     video2_path = [video2_path] if video2_path else []
-                
+
                 # 过滤掉空值、空列表和字符串"[]"
                 video2_path = [
-                    path for path in video2_path 
+                    path for path in video2_path
                     if path and not (isinstance(path, list) and len(path) == 0) and path not in ["[]", "''"]
                 ]
-                
+
                 if not video2_path:
                     raise ValueError("缺少第二个视频/图片路径")
                 
@@ -671,7 +771,11 @@ class TaskHandlers:
             try:
                 from modules.video_merge_module import video_merge_module
 
-                videos = params.get("videos", "")
+                # 标准化参数名称
+                normalized_params = self._normalize_params(params, "video_merge")
+
+                # 获取输入参数（优先使用标准化参数，如果不存在则使用旧参数）
+                videos = normalized_params.get("input_videos") or params.get("videos", "")
                 output_name = params.get("output_name", "merged_video")
                 task_id = params.get("task_id", "video_merge")
                 delete_intermediate_videos = params.get("delete_intermediate_videos", True)

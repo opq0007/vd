@@ -50,8 +50,8 @@
       "name": "混合用户图片",
       "type": "image_process",
       "params": {
-        "base_image": "background.png",
-        "overlay_images": "${user_images}",
+        "input_image": "background.png",
+        "input_images": "${user_images}",
         "position_x": 85,
         "position_y": 90,
         "width": 425,
@@ -65,8 +65,8 @@
       "name": "为2张图片生成转场效果",
       "type": "video_transition",
       "params": {
-        "video1": "background.png",
-        "video2": "${task1_1.output}",
+        "input_video": "background.png",
+        "input2_videos": "${task1_1.output}",
         "transition_name": "crossfade",
         "total_frames": 100,
         "fps": 25,
@@ -80,8 +80,8 @@
       "name": "在视频中添加视频",
       "type": "video_editor",
       "params": {
-        "input": "out_2_${sub_character}.mp4",
-        "video_path": "${task1_2.output[0]}",
+        "input_video": "out_2_${sub_character}.mp4",
+        "input2_video": "${task1_2.output[0]}",
         "video_x": 10,
         "video_y": 10,
         "video_width": 450,
@@ -94,8 +94,8 @@
       "name": "生成字幕",
       "type": "subtitle",
       "params": {
-        "video": "out_4.mp4",
-        "audio": "${task1.output}",
+        "input_video": "out_4.mp4",
+        "input_audio": "${task1.output}",
         "reference_text": "${tts_text}",
         "enable_llm_correction": true,
         "max_chars_per_line": 20,
@@ -108,8 +108,8 @@
       "name": "在视频中添加视频",
       "type": "video_editor",
       "params": {
-        "input": "out_8_${sub_character}.mp4",
-        "video_path": "${task1_2.output[1]}",
+        "input_video": "out_8_${sub_character}.mp4",
+        "input2_video": "${task1_2.output[1]}",
         "video_x": 10,
         "video_y": 10,
         "video_width": 450,
@@ -122,8 +122,8 @@
       "name": "视频添加角色图片",
       "type": "video_editor",
       "params": {
-        "input": "out_9.mp4",
-        "images": "${task1_1.output[2]}",
+        "input_video": "out_9.mp4",
+        "input_image": "${task1_1.output[2]}",
         "x": 735,
         "y": 480,
         "width": 450,
@@ -137,7 +137,7 @@
       "name": "视频添加花字",
       "type": "video_editor",
       "params": {
-        "input": "out_10.mp4",
+        "input_video": "out_10.mp4",
         "text": "${username}，${theme_text}！",
         "font": "华文琥珀.TTF",
         "size": 75,
@@ -160,7 +160,7 @@
       "name": "合并多个视频",
       "type": "video_merge",
       "params": {
-        "videos":["out_1_${sub_character}.mp4","${task2.output}","out_3.mp4","${task3.output}","out_5.mp4","${task4.output}", "${task5.output}","${task6.output}"],
+        "input_videos":["out_1_${sub_character}.mp4","${task2.output}","out_3.mp4","${task3.output}","out_5.mp4","${task4.output}", "${task5.output}","${task6.output}"],
         "output_name": "final_video",
         "delete_intermediate_videos": false
       },
