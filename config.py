@@ -17,6 +17,7 @@ class Config:
     SECRET_KEY = os.environ.get("SECRET_KEY", "your-secret-key-change-in-production")
     HOST = os.environ.get("HOST", "0.0.0.0")
     PORT = int(os.environ.get("PORT", 7860))
+    ENABLE_GRADIO_UI = os.environ.get("ENABLE_GRADIO_UI", "true").lower() in ("true", "1", "yes")
 
     # ==================== URL 配置 ====================
     BASE_HOST = os.environ.get("BASE_HOST", "127.0.0.1")
@@ -53,9 +54,9 @@ class Config:
     ]
 
     # ==================== 认证配置 ====================
+    API_TOKEN = os.environ.get("API_TOKEN", "opq#key")
     API_TOKENS = {
-        'whisper-api-key-2024': 'automation',
-        'test-token': 'test'
+        'opq#key': 'automation'
     }
 
     USERS = {
