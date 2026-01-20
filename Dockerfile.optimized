@@ -1,0 +1,156 @@
+# Hugging Face Spaces Dockerfile for vd project (优化版本)
+# 基于 Python 3.10 slim 镜像
+FROM python:3.10-slim
+
+# 设置元数据
+LABEL maintainer="opq007"
+LABEL description="VD - 视频处理服务"
+LABEL version="3.0.0"
+
+# 设置工作目录
+WORKDIR /app
+
+# 设置环境变量
+# 注意：以下密钥相关的环境变量可以在 Hugging Face Spaces 设置中配置
+# 这样可以避免在代码中硬编码敏感信息
+#
+# 认证密钥配置（生产环境必须在 HF Spaces 设置中修改）：
+# - API_TOKEN: API 认证令牌
+# - SECRET_KEY: JWT 加密密钥
+#
+# 第三方服务密钥：
+# - ZHIPU_API_KEY: 智谱 AI API 密钥
+ENV PYTHONUNBUFFERED=1 \
+    DEBIAN_FRONTEND=noninteractive \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PIP_NO_CACHE_DIR=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    PORT=7860 \
+    HOST=0.0.0.0 \
+    ENABLE_GRADIO_UI=true \
+    FW_MODEL=small \
+    FW_DEVICE=cpu \
+    FW_COMPUTE=int8 \
+    VOX_ONNX_DEVICE=cpu \
+    VOX_ONNX_OPTIMIZE=1 \
+    VOX_ONNX_DTYPE=fp32 \
+    LOG_LEVEL=INFO \
+    MODELSCOPE_CACHE=/app/models/modelscope_cache
+
+# 安装系统依赖（最小化安装）
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ffmpeg \
+    aria2 \
+    p7zip-full \
+    git \
+    curl \
+    ca-certificates \
+    && rm -rf /var/lib/apt/lists/* \
+    && apt-get clean
+
+# 设置 GitHub 仓库地址（可通过环境变量覆盖）
+ARG REPO_URL=https://github.com/opq007/vd.git
+ARG REPO_BRANCH=main
+
+# 升级 pip 并安装 Python 依赖（分批安装以优化构建缓存）
+RUN pip install --no-cache-dir --upgrade pip setuptools wheel && \
+    pip install --no-cache-dir --default-timeout=100 \
+    "faster-whisper" \
+    "fastapi" \
+    "uvicorn[standard]" \
+    "python-multipart" \
+    "aiofiles" \
+    "PyJWT" \
+    "gradio" \
+    "requests" && \
+    pip install --no-cache-dir --default-timeout=100 \
+    "playwright>=1.40.0" \
+    "opencv-python-headless" \
+    "numpy" \
+    "torch" \
+    "Pillow>=10.0.0" \
+    "soundfile" \
+    "transformers>=4.30.0" \
+    "onnxruntime" \
+    "modelscope" && \
+    pip install --no-cache-dir --default-timeout=100 \
+    "sentencepiece" \
+    "protobuf" \
+    "accelerate" \
+    "einops" \
+    "omegaconf" \
+    "scipy" \
+    "librosa"
+
+# 克隆项目代码（自动获取最新版本）
+RUN echo "Cloning project from ${REPO_URL} (branch: ${REPO_BRANCH})..." && \
+    git clone --depth 1 --branch ${REPO_BRANCH} ${REPO_URL} /tmp/vd && \
+    cp -r /tmp/vd/* . && \
+    cp -r /tmp/vd/.* . 2>/dev/null || true && \
+    rm -rf /tmp/vd && \
+    echo "Project cloned successfully"
+
+# 创建必要的目录
+RUN mkdir -p models uploads output debug logs && \
+    chmod -R 755 models uploads output debug logs
+
+# 下载模型文件（使用 aria2 加速，添加重试机制）
+# 1. 下载 RMBG-1.4 模型（背景移除）
+RUN echo "Downloading RMBG-1.4 model..." && \
+    aria2c -x 16 -s 16 --max-tries=5 --retry-wait=5 \
+    -d models/ -o rmbg-1.4.onnx \
+    https://modelscope.cn/models/AI-ModelScope/RMBG-1.4/resolve/master/onnx/model.onnx || \
+    (echo "RMBG-1.4 download failed, retrying..." && \
+     aria2c -x 16 -s 16 --max-tries=10 --retry-wait=10 \
+     -d models/ -o rmbg-1.4.onnx \
+     https://modelscope.cn/models/AI-ModelScope/RMBG-1.4/resolve/master/onnx/model.onnx)
+
+# 2. 下载 faster-whisper-small 模型
+RUN echo "Downloading faster-whisper-small model..." && \
+    modelscope download --model angelala00/faster-whisper-small --local_dir ./models/small --revision master || \
+    (echo "faster-whisper download failed, retrying..." && \
+     modelscope download --model angelala00/faster-whisper-small --local_dir ./models/small --revision master)
+
+# 3. 下载 VoxCPM ONNX 模型
+RUN echo "Downloading VoxCPM ONNX model..." && \
+    aria2c -x 16 -s 16 --max-tries=5 --retry-wait=5 \
+    -d models/ -o onnx_models_v15.zip \
+    https://modelscope.cn/models/opqtest007/vox/resolve/master/onnx_models_v15.zip.ckpt || \
+    (echo "VoxCPM download failed, retrying..." && \
+     aria2c -x 16 -s 16 --max-tries=10 --retry-wait=10 \
+     -d models/ -o onnx_models_v15.zip \
+     https://modelscope.cn/models/opqtest007/vox/resolve/master/onnx_models_v15.zip.ckpt) && \
+    cd models/ && \
+    7z x onnx_models_v15.zip -p -y && \
+    rm onnx_models_v15.zip && \
+    cd ..
+
+# 验证模型文件
+RUN echo "Verifying model files..." && \
+    ls -lh models/ && \
+    ls -lh models/small/ 2>/dev/null || echo "small model not found" && \
+    ls -lh models/onnx_models_v15/ 2>/dev/null || echo "onnx_models_v15 not found"
+
+# 清理 pip 缓存和临时文件
+RUN rm -rf /tmp/* /root/.cache/pip /root/.local/share/pip
+
+# 暴露端口
+EXPOSE 7860
+
+# 创建非 root 用户（安全最佳实践）
+RUN useradd -m -u 1000 appuser && \
+    chown -R appuser:appuser /app
+
+# 切换到非 root 用户
+USER appuser
+
+# 启动命令（使用 uvicorn 的生产配置）
+# 注意：Hugging Face Spaces 会自动检测服务是否启动
+CMD ["uvicorn", "app:app", \
+     "--host", "0.0.0.0", \
+     "--port", "7860", \
+     "--workers", "1", \
+     "--log-level", "info", \
+     "--access-log", \
+     "--no-use-colors", \
+     "--timeout-keep-alive", "300"]
