@@ -125,11 +125,22 @@ RUN echo "Downloading VoxCPM ONNX model..." && \
     rm onnx_models_v15.zip && \
     cd ..
 
+# 4. 下载 VoxCPM 参考音频数据库
+RUN echo "Downloading VoxCPM reference database..." && \
+    aria2c -x 16 -s 16 --max-tries=5 --retry-wait=5 \
+    -d models/ -o voxcpm_ref.db \
+    https://modelscope.cn/models/opqtest007/vox/resolve/master/voxcpm_ref.db || \
+    (echo "VoxCPM reference database download failed, retrying..." && \
+     aria2c -x 16 -s 16 --max-tries=10 --retry-wait=10 \
+     -d models/ -o voxcpm_ref.db \
+     https://modelscope.cn/models/opqtest007/vox/resolve/master/voxcpm_ref.db)
+
 # 验证模型文件
 RUN echo "Verifying model files..." && \
     ls -lh models/ && \
     ls -lh models/small/ 2>/dev/null || echo "small model not found" && \
-    ls -lh models/onnx_models_v15/ 2>/dev/null || echo "onnx_models_v15 not found"
+    ls -lh models/onnx_models_v15/ 2>/dev/null || echo "onnx_models_v15 not found" && \
+    ls -lh models/voxcpm_ref.db 2>/dev/null || echo "voxcpm_ref.db not found"
 
 # 清理 pip 缓存和临时文件
 RUN rm -rf /tmp/* /root/.cache/pip /root/.local/share/pip
