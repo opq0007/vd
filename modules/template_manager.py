@@ -155,19 +155,88 @@ class TemplateManager:
     def get_template_parameters(self, name: str) -> Dict[str, Any]:
         """
         获取模板的参数定义
-        
+
         Args:
             name: 模板名称
-            
+
         Returns:
             参数定义字典
         """
         template = self.get_template(name)
         if not template:
             return {}
-        
+
         return template.get("parameters", {})
-    
+
+    def get_all_templates(self) -> List[Dict[str, Any]]:
+        """
+        获取所有模板的列表
+
+        Returns:
+            模板列表，每个模板包含基本信息
+        """
+        templates = []
+        for name, template in self._templates.items():
+            templates.append({
+                "name": template.get("name"),
+                "description": template.get("description", ""),
+                "version": template.get("version"),
+                "character": template.get("character", ""),
+                "theme": template.get("theme", ""),
+                "task_count": len(template.get("tasks", [])),
+                "parameters": list(template.get("parameters", {}).keys())
+            })
+        return templates
+
+    def save_template(self, name: str, template_data: Dict[str, Any]):
+        """
+        保存模板
+
+        Args:
+            name: 模板名称
+            template_data: 模板数据
+        """
+        # 验证模板格式
+        if not self._validate_template(template_data):
+            raise ValueError("模板格式无效")
+
+        # 确定保存路径
+        character = template_data.get("character", "default")
+        theme = template_data.get("theme", "default")
+        template_dir = self.template_dir / character
+        template_dir.mkdir(exist_ok=True)
+
+        # 生成文件名
+        template_file = template_dir / f"{character}_{theme}.json"
+
+        # 保存模板
+        with open(template_file, 'w', encoding='utf-8') as f:
+            json.dump(template_data, f, indent=2, ensure_ascii=False)
+
+        Logger.info(f"模板已保存: {template_file}")
+
+        # 重新加载模板
+        self._load_templates()
+
+    def delete_template(self, name: str):
+        """
+        删除模板
+
+        Args:
+            name: 模板名称
+        """
+        template = self.get_template(name)
+        if not template:
+            raise ValueError(f"模板不存在: {name}")
+
+        template_file = template.get("template_file")
+        if template_file and Path(template_file).exists():
+            Path(template_file).unlink()
+            Logger.info(f"模板已删除: {template_file}")
+
+        # 重新加载模板
+        self._load_templates()
+
     def reload_templates(self):
         """重新加载所有模板"""
         Logger.info("重新加载模板...")

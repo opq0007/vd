@@ -1627,6 +1627,261 @@ def register_routes(app) -> None:
             Logger.error(traceback.format_exc())
             return response_formatter.wrap_exception(e, "TTS+字幕+视频合成处理失败")
 
+    # ==================== 模板管理 ====================
+    @api_router.get("/templates")
+    async def get_all_templates(
+        payload: Dict[str, Any] = Depends(verify_token)
+    ) -> Dict[str, Any]:
+        """
+        获取所有模板的列表
+
+        Args:
+            payload: 认证载荷
+
+        Returns:
+            Dict[str, Any]: 模板列表
+        """
+        try:
+            from modules.template_manager import template_manager
+
+            templates = template_manager.get_all_templates()
+            return response_formatter.success(
+                data={
+                    "count": len(templates),
+                    "templates": templates
+                },
+                message="获取模板列表成功"
+            )
+        except Exception as e:
+            return response_formatter.wrap_exception(e, "获取模板列表失败")
+
+    @api_router.get("/templates/{template_name}")
+    async def get_template(
+        template_name: str,
+        payload: Dict[str, Any] = Depends(verify_token)
+    ) -> Dict[str, Any]:
+        """
+        获取指定模板的详细信息
+
+        Args:
+            template_name: 模板名称
+            payload: 认证载荷
+
+        Returns:
+            Dict[str, Any]: 模板详细信息
+        """
+        try:
+            from modules.template_manager import template_manager
+
+            template = template_manager.get_template(template_name)
+            if not template:
+                return response_formatter.error(
+                    message=f"模板不存在: {template_name}",
+                    error_code="TEMPLATE_NOT_FOUND"
+                )
+
+            return response_formatter.success(
+                data=template,
+                message="获取模板详情成功"
+            )
+        except Exception as e:
+            return response_formatter.wrap_exception(e, "获取模板详情失败")
+
+    @api_router.post("/templates/{template_name}")
+    async def save_template(
+        template_name: str,
+        template_data: Dict[str, Any],
+        payload: Dict[str, Any] = Depends(verify_token)
+    ) -> Dict[str, Any]:
+        """
+        保存模板（新建或更新）
+
+        Args:
+            template_name: 模板名称
+            template_data: 模板数据
+            payload: 认证载荷
+
+        Returns:
+            Dict[str, Any]: 操作结果
+        """
+        try:
+            from modules.template_manager import template_manager
+
+            # 验证模板数据
+            required_fields = ["name", "description", "version", "tasks"]
+            for field in required_fields:
+                if field not in template_data:
+                    return response_formatter.error(
+                        message=f"缺少必需字段: {field}",
+                        error_code="INVALID_TEMPLATE"
+                    )
+
+            # 保存模板
+            template_manager.save_template(template_name, template_data)
+
+            return response_formatter.success(
+                message=f"模板 '{template_name}' 保存成功"
+            )
+        except Exception as e:
+            return response_formatter.wrap_exception(e, "保存模板失败")
+
+    @api_router.delete("/templates/{template_name}")
+    async def delete_template(
+        template_name: str,
+        payload: Dict[str, Any] = Depends(verify_token)
+    ) -> Dict[str, Any]:
+        """
+        删除模板
+
+        Args:
+            template_name: 模板名称
+            payload: 认证载荷
+
+        Returns:
+            Dict[str, Any]: 操作结果
+        """
+        try:
+            from modules.template_manager import template_manager
+
+            template_manager.delete_template(template_name)
+
+            return response_formatter.success(
+                message=f"模板 '{template_name}' 删除成功"
+            )
+        except Exception as e:
+            return response_formatter.wrap_exception(e, "删除模板失败")
+
+    @api_router.post("/templates/{template_name}/resources")
+    async def upload_template_resource(
+        template_name: str,
+        file: UploadFile = File(...),
+        payload: Dict[str, Any] = Depends(verify_token)
+    ) -> Dict[str, Any]:
+        """
+        上传模板资源文件
+
+        Args:
+            template_name: 模板名称
+            file: 上传的文件
+            payload: 认证载荷
+
+        Returns:
+            Dict[str, Any]: 操作结果
+        """
+        try:
+            from modules.template_manager import template_manager
+
+            # 获取模板目录
+            template = template_manager.get_template(template_name)
+            if not template:
+                return response_formatter.error(
+                    message=f"模板不存在: {template_name}",
+                    error_code="TEMPLATE_NOT_FOUND"
+                )
+
+            template_dir = Path(template.get("template_dir", ""))
+            if not template_dir.exists():
+                template_dir.mkdir(parents=True, exist_ok=True)
+
+            # 保存文件
+            file_path = template_dir / file.filename
+            with open(file_path, "wb") as f:
+                f.write(await file.read())
+
+            return response_formatter.success(
+                message=f"文件 '{file.filename}' 上传成功",
+                data={"file_path": str(file_path)}
+            )
+        except Exception as e:
+            return response_formatter.wrap_exception(e, "上传资源文件失败")
+
+    @api_router.get("/templates/{template_name}/resources")
+    async def get_template_resources(
+        template_name: str,
+        payload: Dict[str, Any] = Depends(verify_token)
+    ) -> Dict[str, Any]:
+        """
+        获取模板资源文件列表
+
+        Args:
+            template_name: 模板名称
+            payload: 认证载荷
+
+        Returns:
+            Dict[str, Any]: 资源文件列表
+        """
+        try:
+            from modules.template_manager import template_manager
+
+            template = template_manager.get_template(template_name)
+            if not template:
+                return response_formatter.error(
+                    message=f"模板不存在: {template_name}",
+                    error_code="TEMPLATE_NOT_FOUND"
+                )
+
+            template_dir = Path(template.get("template_dir", ""))
+            if not template_dir.exists():
+                return response_formatter.success(
+                    data={"count": 0, "resources": []},
+                    message="模板目录不存在"
+                )
+
+            # 获取所有文件
+            resources = []
+            for file in template_dir.iterdir():
+                if file.is_file():
+                    resources.append({
+                        "name": file.name,
+                        "path": str(file),
+                        "size": file.stat().st_size
+                    })
+
+            return response_formatter.success(
+                data={
+                    "count": len(resources),
+                    "resources": resources
+                },
+                message="获取资源文件列表成功"
+            )
+        except Exception as e:
+            return response_formatter.wrap_exception(e, "获取资源文件列表失败")
+
+    @api_router.get("/templates/{template_name}/resources/{resource_name}")
+    async def download_template_resource(
+        template_name: str,
+        resource_name: str,
+        payload: Dict[str, Any] = Depends(verify_token)
+    ) -> FileResponse:
+        """
+        下载模板资源文件
+
+        Args:
+            template_name: 模板名称
+            resource_name: 资源文件名
+            payload: 认证载荷
+
+        Returns:
+            FileResponse: 文件响应
+        """
+        from modules.template_manager import template_manager
+
+        template = template_manager.get_template(template_name)
+        if not template:
+            raise HTTPException(status_code=404, detail=f"模板不存在: {template_name}")
+
+        template_dir = Path(template.get("template_dir", ""))
+        file_path = template_dir / resource_name
+
+        if not file_path.exists():
+            raise HTTPException(status_code=404, detail=f"资源文件不存在: {resource_name}")
+
+        return FileResponse(
+            path=str(file_path),
+            filename=resource_name,
+            media_type="application/octet-stream"
+        )
+
     # ==================== 综合处理（基于模板） ====================
     @api_router.get("/batch/templates")
     async def list_templates(

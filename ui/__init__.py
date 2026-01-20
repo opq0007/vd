@@ -12,6 +12,7 @@ from .video_editor_ui import create_video_editor_interface
 from .video_merge_ui import create_video_merge_interface
 from .image_processing_ui import create_image_processing_interface
 from .batch_processing_ui import create_batch_processing_interface
+from .template_manager_ui import get_template_manager_ui
 
 __all__ = [
     'get_custom_css',
@@ -22,5 +23,6 @@ __all__ = [
     'create_video_editor_interface',
     'create_video_merge_interface',
     'create_image_processing_interface',
-    'create_batch_processing_interface'
+    'create_batch_processing_interface',
+    'get_template_manager_ui'
 ]
