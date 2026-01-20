@@ -133,11 +133,16 @@ class TaskOrchestrator:
                             Logger.debug(f"跳过用户传入的参数: {key}")
                             continue
 
+                        # 添加调试日志
+                        Logger.debug(f"处理路径参数: {key}, value={value}, type={type(value)}")
+
                         # 优先检查数组类型
                         if isinstance(value, list):
                             # 处理数组类型的参数
+                            Logger.debug(f"检测到数组类型参数: {key}, 数组长度={len(value)}")
                             resolved_list = []
                             for item in value:
+                                Logger.debug(f"处理数组元素: {item}, type={type(item)}")
                                 if isinstance(item, str) and not Path(item).is_absolute():
                                     # 检查是否是模板目录下的相对路径
                                     template_resource = template_dir / item
@@ -148,7 +153,10 @@ class TaskOrchestrator:
                                         # 抛出异常，而不是只记录警告
                                         raise FileNotFoundError(f"模板资源文件不存在: {template_resource}")
                                 else:
+                                    # 如果 item 不是字符串，或者已经是绝对路径，直接添加
+                                    Logger.debug(f"直接添加数组元素: {item}")
                                     resolved_list.append(item)
+                            Logger.debug(f"解析后的数组参数: {key}={resolved_list}")
                             resolved_params[key] = resolved_list
                         elif isinstance(value, str) and not Path(value).is_absolute():
                             # 检查是否是包含换行符的多行字符串（如视频合并任务的 videos 参数）

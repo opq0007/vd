@@ -670,15 +670,33 @@ class TaskHandlers:
             """视频合并任务处理器"""
             try:
                 from modules.video_merge_module import video_merge_module
-                
+
                 videos = params.get("videos", "")
                 output_name = params.get("output_name", "merged_video")
                 task_id = params.get("task_id", "video_merge")
                 delete_intermediate_videos = params.get("delete_intermediate_videos", True)
-                
+
+                # 处理 videos 参数（支持列表和字符串）
+                if isinstance(videos, list):
+                    # 如果是列表，转换为 \n 换行符拼接的字符串
+                    Logger.info(f"videos 参数是列表类型，包含 {len(videos)} 个元素")
+                    # 过滤掉空值和无效值
+                    videos_list = [str(v) for v in videos if v and v not in ["", "[]", "''"]]
+                    if not videos_list:
+                        raise ValueError("videos 列表为空或只包含无效值")
+                    videos = "\n".join(videos_list)
+                    Logger.info(f"将列表转换为多行字符串: {len(videos_list)} 个视频路径")
+                elif isinstance(videos, str):
+                    # 如果是字符串，直接使用
+                    if not videos.strip():
+                        raise ValueError("videos 字符串为空")
+                    Logger.info(f"videos 参数是字符串类型")
+                else:
+                    raise ValueError(f"videos 参数类型不支持: {type(videos)}")
+
                 if not videos:
                     raise ValueError("缺少输入视频路径")
-                
+
                 # 创建输出目录（使用共享目录或创建新目录）
                 job_dir = params.get("job_dir")
                 if job_dir:
@@ -686,11 +704,11 @@ class TaskHandlers:
                     output_dir.mkdir(parents=True, exist_ok=True)
                 else:
                     output_dir = FileUtils.create_job_dir()
-                
+
                 # 使用 task_id 生成输出文件名
                 if not output_name or output_name == "merged_video":
                     output_name = f"{task_id}_merged_video"
-                
+
                 # 调用视频合并模块
                 result = await video_merge_module.merge_videos(
                     video_paths=videos,
