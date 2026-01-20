@@ -86,7 +86,7 @@ class AuthService:
         Returns:
             bool: 令牌是否有效
         """
-        return token in config.API_TOKENS
+        return token == config.API_TOKEN
 
     @staticmethod
     def verify_user(username: str, password: str) -> bool:
