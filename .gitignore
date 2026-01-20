@@ -218,3 +218,14 @@ fonts/*.woff2
 
 # 忽略模板目录下的视频文件
 templates/**/*.mp4
+
+# Docker 相关
+.dockerignore
+.spaceignore
+*.dockerfile
+
+# Docker 构建产物
+.docker/
+
+# 测试脚本输出
+*.log
