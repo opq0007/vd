@@ -150,11 +150,20 @@ class ParameterResolver:
                     else:
                         array_value = task_output
                     
-                    if isinstance(array_value, list) and 0 <= index < len(array_value):
-                        value = str(array_value[index])
-                        Logger.info(f"获取数组索引值: {task_id}.{output_key} = {value}")
+                    if isinstance(array_value, list):
+                        if len(array_value) == 0:
+                            Logger.warning(f"数组为空: {task_id}.{output_key}")
+                            value = ""
+                        else:
+                            # 使用取模运算处理索引越界
+                            actual_index = index % len(array_value)
+                            value = str(array_value[actual_index])
+                            if index != actual_index:
+                                Logger.info(f"数组索引 {index} 越界，使用取模后的索引 {actual_index}: {task_id}.{output_key} = {value}")
+                            else:
+                                Logger.info(f"获取数组索引值: {task_id}.{output_key} = {value}")
                     else:
-                        Logger.warning(f"数组索引超出范围或不是数组: {task_id}.{output_key}")
+                        Logger.warning(f"不是数组类型: {task_id}.{output_key}, 类型: {type(array_value)}")
                         value = ""
                 except (ValueError, IndexError) as e:
                     Logger.warning(f"解析数组索引失败: {task_id}.{output_key}, 错误: {e}")

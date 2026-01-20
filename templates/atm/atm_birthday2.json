@@ -46,21 +46,7 @@
       }
     },
     {
-      "id": "task2",
-      "name": "生成字幕",
-      "type": "subtitle",
-      "params": {
-        "video": "out_4.mp4",
-        "audio": "${task1.output}",
-        "reference_text": "${tts_text}",
-        "enable_llm_correction": true,
-        "max_chars_per_line": 20,
-        "max_lines_per_segment": 2
-      },
-      "depends_on": ["task1"]
-    },
-    {
-      "id": "task3",
+      "id": "task1_1",
       "name": "混合用户图片",
       "type": "image_process",
       "params": {
@@ -75,7 +61,79 @@
       }
     },
     {
+      "id": "task1_2",
+      "name": "为2张图片生成转场效果",
+      "type": "video_transition",
+      "params": {
+        "video1": "background.png",
+        "video2": "${task1_1.output}",
+        "transition_name": "crossfade",
+        "total_frames": 100,
+        "fps": 25,
+        "width": 600,
+        "height": 800
+      },
+      "depends_on": ["task1_1"]
+    },  
+    {
+      "id": "task2",
+      "name": "在视频中添加视频",
+      "type": "video_editor",
+      "params": {
+        "input": "out_2_${sub_character}.mp4",
+        "video_path": "${task1_2.output[0]}",
+        "video_x": 10,
+        "video_y": 10,
+        "video_width": 450,
+        "video_height": 600
+      },
+      "depends_on": ["task1_2"]
+    },      
+    {
+      "id": "task3",
+      "name": "生成字幕",
+      "type": "subtitle",
+      "params": {
+        "video": "out_4.mp4",
+        "audio": "${task1.output}",
+        "reference_text": "${tts_text}",
+        "enable_llm_correction": true,
+        "max_chars_per_line": 20,
+        "max_lines_per_segment": 2
+      },
+      "depends_on": ["task1"]
+    },
+    {
       "id": "task4",
+      "name": "在视频中添加视频",
+      "type": "video_editor",
+      "params": {
+        "input": "out_8_${sub_character}.mp4",
+        "video_path": "${task1_2.output[1]}",
+        "video_x": 10,
+        "video_y": 10,
+        "video_width": 450,
+        "video_height": 600
+      },
+      "depends_on": ["task1_2"]
+    },  
+    {
+      "id": "task5",
+      "name": "视频添加角色图片",
+      "type": "video_editor",
+      "params": {
+        "input": "out_9.mp4",
+        "images": "${task1_1.output[2]}",
+        "x": 735,
+        "y": 480,
+        "width": 450,
+        "height": 600,
+        "remove_bg": false
+      },
+      "depends_on": ["task1_1"]
+    },
+   {
+      "id": "task6",
       "name": "视频添加花字",
       "type": "video_editor",
       "params": {
@@ -96,61 +154,17 @@
         }
       },
       "depends_on": []
-    },
-    {
-      "id": "task5",
-      "name": "视频添加角色图片",
-      "type": "video_editor",
-      "params": {
-        "input": "out_9.mp4",
-        "images": "${task3.output[0]}",
-        "x": 735,
-        "y": 480,
-        "width": 450,
-        "height": 600,
-        "remove_bg": false
-      },
-      "depends_on": ["task3"]
-    },
-    {
-      "id": "task6",
-      "name": "为2张图片生成转场效果",
-      "type": "video_transition",
-      "params": {
-        "video1": "background.png",
-        "video2": "${task3.output[0]}",
-        "transition_name": "crossfade",
-        "total_frames": 100,
-        "fps": 25,
-        "width": 600,
-        "height": 800
-      },
-      "depends_on": []
-    },
+    },    
     {
       "id": "task7",
-      "name": "在视频中添加视频",
-      "type": "video_editor",
-      "params": {
-        "input": "out_2_${sub_character}.mp4",
-        "video_path": "${task6.output}",
-        "video_x": 10,
-        "video_y": 10,
-        "video_width": 450,
-        "video_height": 600
-      },
-      "depends_on": ["task6"]
-    },
-    {
-      "id": "task9",
       "name": "合并多个视频",
       "type": "video_merge",
       "params": {
-        "videos": "out_1_${sub_character}.mp4\n ${task7.output}\n out_3.mp4\n ${task2.output}\n ${task5.output}\n ${task4.output}",
+        "videos": "out_1_${sub_character}.mp4\n ${task2.output}\n out_3.mp4\n ${task3.output}\n out_5.mp4\n ${task4.output}\n ${task5.output}\n ${task6.output}",
         "output_name": "final_video",
         "delete_intermediate_videos": false
       },
-      "depends_on": ["task2", "task4", "task5", "task7"]
+      "depends_on": ["task1","task2","task3", "task4", "task5", "task6"]
     }
   ]
 }
