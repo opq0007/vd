@@ -113,6 +113,7 @@ class TaskOrchestrator:
                         '_images', '_videos', '_audios',
                         '_paths', '_files',
                         'input',  # 添加 input 参数，用于 video_editor 等任务
+                        'input2',  # 添加 input2 参数，用于第二个输入
                         'video1',  # 添加 video1 参数，用于 video_transition 任务
                         'video2',  # 添加 video2 参数，用于 video_transition 任务
                         'videos'   # 添加 videos 参数，用于 video_merge 任务

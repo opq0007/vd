@@ -48,7 +48,8 @@ from ui import (
     create_video_editor_interface,
     create_video_merge_interface,
     create_image_processing_interface,
-    create_batch_processing_interface
+    create_batch_processing_interface,
+    get_template_manager_ui
 )
 
 # 初始化日志
@@ -180,6 +181,10 @@ def create_gradio_interface():
             # 综合处理标签页
             with gr.TabItem("🚀 综合处理"):
                 create_batch_processing_interface()
+
+            # 模板管理标签页
+            with gr.TabItem("📁 模板管理"):
+                get_template_manager_ui()
 
             # API文档标签页
             with gr.TabItem("API文档"):

@@ -27,23 +27,25 @@ def create_batch_processing_interface() -> gr.Blocks:
         with gr.Row():
             with gr.Column():
                 # 模板选择区域
-                gr.Markdown("### 📋 选择模板")
+                with gr.Row():
+                    gr.Markdown("### 📋 选择模板")
+                    refresh_templates_btn = gr.Button("🔄", size="sm", variant="secondary", scale=0, min_width=40)
+
                 template_names = template_manager.get_template_names()
-                
+
                 if not template_names:
                     template_names = ["无可用模板"]
                     default_template = ""
                 else:
                     default_template = template_names[0]
-                
+
                 template_dropdown = gr.Dropdown(
                     choices=template_names,
                     value=default_template,
                     label="选择模板",
-                    info="选择要使用的处理模板"
+                    info="选择要使用的处理模板",
+                    scale=1
                 )
-                
-                template_info = gr.JSON(label="模板信息", visible=False)
                 
                 # 参数输入区域
                 gr.Markdown("### 📝 输入参数")
@@ -131,11 +133,26 @@ def create_batch_processing_interface() -> gr.Blocks:
                 video_preview = gr.Video(label="视频预览", visible=False)
         
         # 事件处理
+        def refresh_template_list():
+            """刷新模板列表"""
+            # 重新加载模板
+            template_manager.reload_templates()
+
+            # 获取更新后的模板列表
+            template_names = template_manager.get_template_names()
+
+            if not template_names:
+                template_names = ["无可用模板"]
+                default_template = ""
+            else:
+                default_template = template_names[0]
+
+            return gr.Dropdown(choices=template_names, value=default_template)
+
         def update_template_info(template_name):
             """更新模板信息并自动填充参数默认值"""
             if not template_name or template_name == "无可用模板":
                 return (
-                    gr.JSON(value={}, visible=False),
                     "",  # username
                     6,   # age
                     "生日快乐",  # theme
@@ -143,29 +160,28 @@ def create_batch_processing_interface() -> gr.Blocks:
                     "",  # sub_character
                     "",  # tts_text
                 )
-            
+
             info = template_manager.get_template_info(template_name)
             parameters = info.get("parameters", {})
-            
+
             # 从模板参数中提取默认值
             # 使用嵌套的get方法安全地获取参数值
             username = parameters.get("username", {}).get("default", "")
             age = parameters.get("age", {}).get("default", 6)
             theme_text = parameters.get("theme_text", {}).get("default", "生日快乐")
-            
+
             # character参数：优先从parameters中获取，否则从模板元数据中获取
             character = parameters.get("character", {}).get("default", "")
             if not character:
                 character = info.get("character", "奥特曼")
-            
+
             # sub_character参数：从parameters中获取，如果不存在则为空
             sub_character = parameters.get("sub_character", {}).get("default", "")
-            
+
             # tts_text参数：从parameters中获取默认值
             tts_text = parameters.get("tts_text", {}).get("default", "")
-            
+
             return (
-                gr.JSON(value=info, visible=True),
                 username,
                 age,
                 theme_text,
@@ -178,7 +194,6 @@ def create_batch_processing_interface() -> gr.Blocks:
             update_template_info,
             inputs=[template_dropdown],
             outputs=[
-                template_info,
                 username_input,
                 age_input,
                 theme_input,
@@ -186,6 +201,11 @@ def create_batch_processing_interface() -> gr.Blocks:
                 sub_character_input,
                 tts_text_input,
             ]
+        )
+
+        refresh_templates_btn.click(
+            refresh_template_list,
+            outputs=[template_dropdown]
         )
         
         async def execute_batch_processing(
@@ -319,7 +339,13 @@ def create_batch_processing_interface() -> gr.Blocks:
                 video_preview
             ]
         )
-    
+
+        # 页面加载时自动刷新模板列表
+        batch_processing_interface.load(
+            refresh_template_list,
+            outputs=[template_dropdown]
+        )
+
     return batch_processing_interface
 
 
