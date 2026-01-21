@@ -126,6 +126,58 @@ python app.py
 
 服务默认运行在 `http://127.0.0.1:7860`
 
+### 运行模式
+
+本服务支持两种运行模式：
+
+#### 1. 完整模式（默认）
+
+启用 Gradio Web 界面和 API 服务。
+
+**环境变量**：
+```bash
+ENABLE_GRADIO_UI=true  # 或不设置（默认启用）
+```
+
+**服务地址**：
+- **Web 界面**: http://127.0.0.1:7860
+- **API 文档**: http://127.0.0.1:7860/docs (Swagger UI)
+- **ReDoc 文档**: http://127.0.0.1:7860/redoc
+
+**适用场景**：
+- 开发和测试
+- 需要 Web 界面的场景
+- 小规模部署
+
+#### 2. API 专用模式
+
+仅提供 API 服务，不启用 Gradio Web 界面。
+
+**环境变量**：
+```bash
+ENABLE_GRADIO_UI=false
+```
+
+**服务地址**：
+- **API 文档**: http://127.0.0.1:7860/docs (Swagger UI)
+- **ReDoc 文档**: http://127.0.0.1:7860/redoc
+
+**适用场景**：
+- 生产环境部署
+- 仅需要 API 服务的场景
+- 减少资源占用
+
+**启动示例**：
+```bash
+# Windows
+set ENABLE_GRADIO_UI=false
+python app.py
+
+# Linux/macOS
+export ENABLE_GRADIO_UI=false
+python app.py
+```
+
 ### 服务地址
 
 - **Web 界面**: http://127.0.0.1:7860
@@ -287,8 +339,7 @@ python app.py
 - 普通用户: `user` / `user123`
 
 固定 token：
-- `whisper-api-key-2024` - 自动化调用
-- `test-token` - 测试用途
+- `opq#key` - 统一认证 token（用于自动化调用和测试）
 
 ### 主要 API
 
@@ -331,6 +382,7 @@ python app.py
 # 服务配置
 HOST = os.environ.get("HOST", "0.0.0.0")
 PORT = int(os.environ.get("PORT", 7860))
+ENABLE_GRADIO_UI = os.environ.get("ENABLE_GRADIO_UI", "true").lower() in ("true", "1", "yes")  # 是否启用 Gradio UI
 
 # Whisper 模型配置
 DEFAULT_MODEL = os.environ.get("FW_MODEL", "small")
@@ -342,7 +394,7 @@ VOXCPM_MODEL_DIR = os.environ.get("VOXCPM_MODEL_DIR", "models/OpenBMB__VoxCPM-0.
 VOXCPM_REPO_ID = os.environ.get("VOXCPM_REPO_ID", "OpenBMB/VoxCPM-0.5B")
 
 # 认证配置
-API_TOKEN = os.environ.get("API_TOKEN", "whisper-api-key-2024")
+API_TOKEN = os.environ.get("API_TOKEN", "opq#key")
 SECRET_KEY = os.environ.get("SECRET_KEY", "your-secret-key-change-in-production")
 
 # 文件和目录配置
@@ -676,7 +728,7 @@ import requests
 
 # 配置
 BASE_URL = "http://127.0.0.1:7860"
-TOKEN = "whisper-api-key-2024"
+TOKEN = "opq#key"
 headers = {"Authorization": f"Bearer {TOKEN}"}
 
 # 1. 获取模板列表
@@ -739,7 +791,7 @@ else:
 ```bash
 # 配置
 BASE_URL="http://127.0.0.1:7860"
-TOKEN="whisper-api-key-2024"
+TOKEN="opq#key"
 
 # 1. 获取模板列表
 curl -X GET "${BASE_URL}/api/batch/templates" \

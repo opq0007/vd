@@ -14,3 +14,6 @@ Pillow>=10.0.0
 soundfile
 transformers>=4.30.0
 onnxruntime
+huggingface_hub
+modelscope
+aiohttp

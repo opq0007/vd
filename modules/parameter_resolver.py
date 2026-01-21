@@ -43,7 +43,7 @@ class ParameterResolver:
     
     @classmethod
     def _resolve_string(cls, text: str, parameters: Dict[str, Any],
-                       task_outputs: Dict[str, Any]) -> str:
+                       task_outputs: Dict[str, Any]) -> Any:
         """
         解析字符串中的参数
         
@@ -53,11 +53,28 @@ class ParameterResolver:
             task_outputs: 任务输出字典
             
         Returns:
-            解析后的字符串
+            解析后的值（可能是字符串或列表）
         """
+        # 检查是否整个字符串就是一个参数占位符
+        match = cls.PARAM_PATTERN.fullmatch(text)
+        if match:
+            param_path = match.group(1)
+            value = cls._get_value(param_path, parameters, task_outputs)
+            # 如果返回值是列表或字典，直接返回，保持原始类型
+            if isinstance(value, (list, dict)):
+                Logger.debug(f"参数 {param_path} 返回复杂类型: {type(value)}")
+                return value
+            # 否则转换为字符串
+            return str(value)
+        
+        # 如果字符串包含多个参数占位符或普通文本，正常替换
         def replace_match(match):
             param_path = match.group(1)
-            return cls._get_value(param_path, parameters, task_outputs)
+            value = cls._get_value(param_path, parameters, task_outputs)
+            # 将任何类型转换为字符串
+            if isinstance(value, (list, dict)):
+                return str(value)
+            return str(value)
         
         return cls.PARAM_PATTERN.sub(replace_match, text)
     
@@ -143,13 +160,13 @@ class ParameterResolver:
                     key_without_index = output_key.split('[')[0]
                     index_str = output_key.split('[')[1].rstrip(']')
                     index = int(index_str)
-                    
+
                     # 获取数组值
                     if isinstance(task_output, dict):
                         array_value = task_output.get(key_without_index, [])
                     else:
                         array_value = task_output
-                    
+
                     if isinstance(array_value, list):
                         if len(array_value) == 0:
                             Logger.warning(f"数组为空: {task_id}.{output_key}")
@@ -157,7 +174,7 @@ class ParameterResolver:
                         else:
                             # 使用取模运算处理索引越界
                             actual_index = index % len(array_value)
-                            value = str(array_value[actual_index])
+                            value = array_value[actual_index]  # 保持原始类型
                             if index != actual_index:
                                 Logger.info(f"数组索引 {index} 越界，使用取模后的索引 {actual_index}: {task_id}.{output_key} = {value}")
                             else:
@@ -168,16 +185,22 @@ class ParameterResolver:
                 except (ValueError, IndexError) as e:
                     Logger.warning(f"解析数组索引失败: {task_id}.{output_key}, 错误: {e}")
                     value = ""
-            
+
+            # 如果值是列表或字典，保持原始类型
+            if isinstance(value, (list, dict)):
+                Logger.debug(f"任务输出 {task_id}.{output_key} 返回复杂类型: {type(value)}")
+                return value
+
             return str(value)
         
         # 否则从参数中获取
         value = parameters.get(path, '')
         
-        # 如果值是列表或字典，转换为字符串
+        # 如果值是列表或字典，直接返回（保持原始类型）
         if isinstance(value, (list, dict)):
-            return str(value)
+            return value
         
+        # 其他类型转换为字符串
         return str(value)
     
     @classmethod

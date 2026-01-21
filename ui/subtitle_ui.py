@@ -437,9 +437,6 @@ async def process_subtitle(
             beam_size=beam_size,
             subtitle_bottom_margin=subtitle_bottom_margin,
             out_basename=None,
-            flower_config=None,  # 不包含花字
-            image_config=None,   # 不包含插图
-            watermark_config=None,  # 不包含水印
             duration_reference=duration_reference,  # 时长基准
             adjust_audio_speed=adjust_audio_speed,  # 音频语速调整
             audio_speed_factor=audio_speed_factor,  # 语速调整倍数

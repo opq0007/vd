@@ -17,6 +17,7 @@ class Config:
     SECRET_KEY = os.environ.get("SECRET_KEY", "your-secret-key-change-in-production")
     HOST = os.environ.get("HOST", "0.0.0.0")
     PORT = int(os.environ.get("PORT", 7860))
+    ENABLE_GRADIO_UI = os.environ.get("ENABLE_GRADIO_UI", "true").lower() in ("true", "1", "yes")
 
     # ==================== URL 配置 ====================
     BASE_HOST = os.environ.get("BASE_HOST", "127.0.0.1")
@@ -53,9 +54,9 @@ class Config:
     ]
 
     # ==================== 认证配置 ====================
+    API_TOKEN = os.environ.get("API_TOKEN", "opq#key")
     API_TOKENS = {
-        'whisper-api-key-2024': 'automation',
-        'test-token': 'test'
+        'opq#key': 'automation'
     }
 
     USERS = {
@@ -94,6 +95,18 @@ class Config:
     ZHIPU_MODEL = os.environ.get("ZHIPU_MODEL", "glm-4.5-flash")  # 默认使用 glm-4.5-flash 模型
     ZHIPU_TEMPERATURE = 0.3  # 温度参数，越低越确定
     ZHIPU_MAX_TOKENS = 8000  # 最大 token 数
+
+    # ==================== 文件持久化配置 ====================
+    # HuggingFace Token - 从 https://huggingface.co/settings/tokens 获取
+    HUGGINGFACE_TOKEN = os.environ.get("HUGGINGFACE_TOKEN", "")
+    # ModelScope Token - 从 https://modelscope.cn/my/myaccesstoken 获取
+    MODELSCOPE_TOKEN = os.environ.get("MODELSCOPE_TOKEN", "")
+
+    # ==================== ComfyUI 配置 ====================
+    # ComfyUI 服务器地址
+    COMFYUI_SERVER_URL = os.environ.get("COMFYUI_SERVER_URL", "http://127.0.0.1:8188")
+    # ComfyUI 工作流执行超时时间（秒）
+    COMFYUI_TIMEOUT = int(os.environ.get("COMFYUI_TIMEOUT", "300"))
 
     @classmethod
     def init_directories(cls):

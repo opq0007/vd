@@ -5,7 +5,7 @@ API 路由模块
 """
 
 from pathlib import Path
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 
 from fastapi import APIRouter, File, UploadFile, Form, HTTPException, Depends, Query
 from fastapi.responses import FileResponse
@@ -22,6 +22,7 @@ from modules.video_editor_module import video_editor_module
 from modules.image_processing_module import image_processing_module
 from utils.logger import Logger
 from utils.media_processor import MediaProcessor
+import os
 
 
 # 定义请求模型
@@ -1627,6 +1628,261 @@ def register_routes(app) -> None:
             Logger.error(traceback.format_exc())
             return response_formatter.wrap_exception(e, "TTS+字幕+视频合成处理失败")
 
+    # ==================== 模板管理 ====================
+    @api_router.get("/templates")
+    async def get_all_templates(
+        payload: Dict[str, Any] = Depends(verify_token)
+    ) -> Dict[str, Any]:
+        """
+        获取所有模板的列表
+
+        Args:
+            payload: 认证载荷
+
+        Returns:
+            Dict[str, Any]: 模板列表
+        """
+        try:
+            from modules.template_manager import template_manager
+
+            templates = template_manager.get_all_templates()
+            return response_formatter.success(
+                data={
+                    "count": len(templates),
+                    "templates": templates
+                },
+                message="获取模板列表成功"
+            )
+        except Exception as e:
+            return response_formatter.wrap_exception(e, "获取模板列表失败")
+
+    @api_router.get("/templates/{template_name}")
+    async def get_template(
+        template_name: str,
+        payload: Dict[str, Any] = Depends(verify_token)
+    ) -> Dict[str, Any]:
+        """
+        获取指定模板的详细信息
+
+        Args:
+            template_name: 模板名称
+            payload: 认证载荷
+
+        Returns:
+            Dict[str, Any]: 模板详细信息
+        """
+        try:
+            from modules.template_manager import template_manager
+
+            template = template_manager.get_template(template_name)
+            if not template:
+                return response_formatter.error(
+                    message=f"模板不存在: {template_name}",
+                    error_code="TEMPLATE_NOT_FOUND"
+                )
+
+            return response_formatter.success(
+                data=template,
+                message="获取模板详情成功"
+            )
+        except Exception as e:
+            return response_formatter.wrap_exception(e, "获取模板详情失败")
+
+    @api_router.post("/templates/{template_name}")
+    async def save_template(
+        template_name: str,
+        template_data: Dict[str, Any],
+        payload: Dict[str, Any] = Depends(verify_token)
+    ) -> Dict[str, Any]:
+        """
+        保存模板（新建或更新）
+
+        Args:
+            template_name: 模板名称
+            template_data: 模板数据
+            payload: 认证载荷
+
+        Returns:
+            Dict[str, Any]: 操作结果
+        """
+        try:
+            from modules.template_manager import template_manager
+
+            # 验证模板数据
+            required_fields = ["name", "description", "version", "tasks"]
+            for field in required_fields:
+                if field not in template_data:
+                    return response_formatter.error(
+                        message=f"缺少必需字段: {field}",
+                        error_code="INVALID_TEMPLATE"
+                    )
+
+            # 保存模板
+            template_manager.save_template(template_name, template_data)
+
+            return response_formatter.success(
+                message=f"模板 '{template_name}' 保存成功"
+            )
+        except Exception as e:
+            return response_formatter.wrap_exception(e, "保存模板失败")
+
+    @api_router.delete("/templates/{template_name}")
+    async def delete_template(
+        template_name: str,
+        payload: Dict[str, Any] = Depends(verify_token)
+    ) -> Dict[str, Any]:
+        """
+        删除模板
+
+        Args:
+            template_name: 模板名称
+            payload: 认证载荷
+
+        Returns:
+            Dict[str, Any]: 操作结果
+        """
+        try:
+            from modules.template_manager import template_manager
+
+            template_manager.delete_template(template_name)
+
+            return response_formatter.success(
+                message=f"模板 '{template_name}' 删除成功"
+            )
+        except Exception as e:
+            return response_formatter.wrap_exception(e, "删除模板失败")
+
+    @api_router.post("/templates/{template_name}/resources")
+    async def upload_template_resource(
+        template_name: str,
+        file: UploadFile = File(...),
+        payload: Dict[str, Any] = Depends(verify_token)
+    ) -> Dict[str, Any]:
+        """
+        上传模板资源文件
+
+        Args:
+            template_name: 模板名称
+            file: 上传的文件
+            payload: 认证载荷
+
+        Returns:
+            Dict[str, Any]: 操作结果
+        """
+        try:
+            from modules.template_manager import template_manager
+
+            # 获取模板目录
+            template = template_manager.get_template(template_name)
+            if not template:
+                return response_formatter.error(
+                    message=f"模板不存在: {template_name}",
+                    error_code="TEMPLATE_NOT_FOUND"
+                )
+
+            template_dir = Path(template.get("template_dir", ""))
+            if not template_dir.exists():
+                template_dir.mkdir(parents=True, exist_ok=True)
+
+            # 保存文件
+            file_path = template_dir / file.filename
+            with open(file_path, "wb") as f:
+                f.write(await file.read())
+
+            return response_formatter.success(
+                message=f"文件 '{file.filename}' 上传成功",
+                data={"file_path": str(file_path)}
+            )
+        except Exception as e:
+            return response_formatter.wrap_exception(e, "上传资源文件失败")
+
+    @api_router.get("/templates/{template_name}/resources")
+    async def get_template_resources(
+        template_name: str,
+        payload: Dict[str, Any] = Depends(verify_token)
+    ) -> Dict[str, Any]:
+        """
+        获取模板资源文件列表
+
+        Args:
+            template_name: 模板名称
+            payload: 认证载荷
+
+        Returns:
+            Dict[str, Any]: 资源文件列表
+        """
+        try:
+            from modules.template_manager import template_manager
+
+            template = template_manager.get_template(template_name)
+            if not template:
+                return response_formatter.error(
+                    message=f"模板不存在: {template_name}",
+                    error_code="TEMPLATE_NOT_FOUND"
+                )
+
+            template_dir = Path(template.get("template_dir", ""))
+            if not template_dir.exists():
+                return response_formatter.success(
+                    data={"count": 0, "resources": []},
+                    message="模板目录不存在"
+                )
+
+            # 获取所有文件
+            resources = []
+            for file in template_dir.iterdir():
+                if file.is_file():
+                    resources.append({
+                        "name": file.name,
+                        "path": str(file),
+                        "size": file.stat().st_size
+                    })
+
+            return response_formatter.success(
+                data={
+                    "count": len(resources),
+                    "resources": resources
+                },
+                message="获取资源文件列表成功"
+            )
+        except Exception as e:
+            return response_formatter.wrap_exception(e, "获取资源文件列表失败")
+
+    @api_router.get("/templates/{template_name}/resources/{resource_name}")
+    async def download_template_resource(
+        template_name: str,
+        resource_name: str,
+        payload: Dict[str, Any] = Depends(verify_token)
+    ) -> FileResponse:
+        """
+        下载模板资源文件
+
+        Args:
+            template_name: 模板名称
+            resource_name: 资源文件名
+            payload: 认证载荷
+
+        Returns:
+            FileResponse: 文件响应
+        """
+        from modules.template_manager import template_manager
+
+        template = template_manager.get_template(template_name)
+        if not template:
+            raise HTTPException(status_code=404, detail=f"模板不存在: {template_name}")
+
+        template_dir = Path(template.get("template_dir", ""))
+        file_path = template_dir / resource_name
+
+        if not file_path.exists():
+            raise HTTPException(status_code=404, detail=f"资源文件不存在: {resource_name}")
+
+        return FileResponse(
+            path=str(file_path),
+            filename=resource_name,
+            media_type="application/octet-stream"
+        )
+
     # ==================== 综合处理（基于模板） ====================
     @api_router.get("/batch/templates")
     async def list_templates(
@@ -1872,6 +2128,696 @@ def register_routes(app) -> None:
             import traceback
             Logger.error(traceback.format_exc())
             return response_formatter.wrap_exception(e, "模板执行失败")
+
+    # ==================== 文件持久化 ====================
+    @api_router.get("/persistence/platforms")
+    async def get_available_platforms(payload: Dict[str, Any] = Depends(verify_token)) -> Dict[str, Any]:
+        """
+        获取可用的持久化平台列表
+
+        Args:
+            payload: 认证载荷
+
+        Returns:
+            Dict[str, Any]: 可用平台列表
+        """
+        try:
+            from modules.file_persistence import get_persistence_manager
+            manager = get_persistence_manager()
+
+            if not manager:
+                return response_formatter.error(
+                    message="文件持久化管理器未初始化",
+                    error_code="PERSISTENCE_MANAGER_NOT_INITIALIZED"
+                )
+
+            platforms = manager.get_available_platforms()
+
+            return response_formatter.success(
+                data={
+                    "platforms": platforms,
+                    "count": len(platforms)
+                },
+                message="获取可用平台成功"
+            )
+        except Exception as e:
+            return response_formatter.wrap_exception(e, "获取可用平台失败")
+
+    @api_router.post("/persistence/upload_file")
+    async def upload_file_to_platform(
+        file_path: str = Form(...),
+        platform: str = Form("modelscope"),
+        repo_id: str = Form(...),
+        path_in_repo: str = Form(None),
+        repo_type: str = Form("dataset"),
+        commit_message: str = Form("Upload file"),
+        payload: Dict[str, Any] = Depends(verify_token)
+    ) -> Dict[str, Any]:
+        """
+        上传单个文件到指定平台
+
+        Args:
+            file_path: 本地文件路径
+            platform: 平台名称 (huggingface/modelscope)
+            repo_id: 仓库 ID
+            path_in_repo: 仓库中的文件路径（可选）
+            repo_type: 仓库类型
+            commit_message: 提交消息
+            payload: 认证载荷
+
+        Returns:
+            Dict[str, Any]: 上传结果
+        """
+        try:
+            from modules.file_persistence import get_persistence_manager
+            manager = get_persistence_manager()
+
+            if not manager:
+                return response_formatter.error(
+                    message="文件持久化管理器未初始化",
+                    error_code="PERSISTENCE_MANAGER_NOT_INITIALIZED"
+                )
+
+            result = manager.upload_single_file(
+                file_path=file_path,
+                platform=platform,
+                repo_id=repo_id,
+                path_in_repo=path_in_repo,
+                repo_type=repo_type,
+                commit_message=commit_message
+            )
+
+            if result.success:
+                return response_formatter.success(
+                    data={
+                        "platform": result.platform,
+                        "repo_id": result.repo_id,
+                        "file_path": result.file_path,
+                        "repo_url": result.repo_url,
+                        "download_url": result.download_url,
+                        "message": result.message
+                    },
+                    message="文件上传成功"
+                )
+            else:
+                return response_formatter.error(
+                    message=result.error or "文件上传失败",
+                    error_code="FILE_UPLOAD_FAILED"
+                )
+        except Exception as e:
+            return response_formatter.wrap_exception(e, "文件上传失败")
+
+    @api_router.post("/persistence/upload_folder")
+    async def upload_folder_to_platform(
+        folder_path: str = Form(...),
+        platform: str = Form("modelscope"),
+        repo_id: str = Form(...),
+        path_in_repo: str = Form(""),
+        repo_type: str = Form("dataset"),
+        commit_message: str = Form("Upload folder"),
+        payload: Dict[str, Any] = Depends(verify_token)
+    ) -> Dict[str, Any]:
+        """
+        上传文件夹到指定平台
+
+        Args:
+            folder_path: 本地文件夹路径
+            platform: 平台名称
+            repo_id: 仓库 ID
+            path_in_repo: 仓库中的文件夹路径
+            repo_type: 仓库类型
+            commit_message: 提交消息
+            payload: 认证载荷
+
+        Returns:
+            Dict[str, Any]: 上传结果
+        """
+        try:
+            from modules.file_persistence import get_persistence_manager
+            manager = get_persistence_manager()
+
+            if not manager:
+                return response_formatter.error(
+                    message="文件持久化管理器未初始化",
+                    error_code="PERSISTENCE_MANAGER_NOT_INITIALIZED"
+                )
+
+            result = manager.upload_folder(
+                folder_path=folder_path,
+                platform=platform,
+                repo_id=repo_id,
+                path_in_repo=path_in_repo,
+                repo_type=repo_type,
+                commit_message=commit_message
+            )
+
+            if result.success:
+                return response_formatter.success(
+                    data={
+                        "platform": result.platform,
+                        "repo_id": result.repo_id,
+                        "file_path": result.file_path,
+                        "repo_url": result.repo_url,
+                        "download_url": result.download_url,
+                        "message": result.message
+                    },
+                    message="文件夹上传成功"
+                )
+            else:
+                return response_formatter.error(
+                    message=result.error or "文件夹上传失败",
+                    error_code="FOLDER_UPLOAD_FAILED"
+                )
+        except Exception as e:
+            return response_formatter.wrap_exception(e, "文件夹上传失败")
+
+    @api_router.post("/persistence/batch_upload")
+    async def batch_upload_files_to_platform(
+        request: Dict[str, Any],
+        payload: Dict[str, Any] = Depends(verify_token)
+    ) -> Dict[str, Any]:
+        """
+        批量上传多个文件到指定平台
+
+        Args:
+            request: 请求体，包含：
+                - file_paths: 文件路径列表
+                - platform: 平台名称
+                - repo_id: 仓库 ID
+                - repo_type: 仓库类型
+                - commit_message: 提交消息
+            payload: 认证载荷
+
+        Returns:
+            Dict[str, Any]: 批量上传结果
+        """
+        try:
+            from modules.file_persistence import get_persistence_manager
+            manager = get_persistence_manager()
+
+            if not manager:
+                return response_formatter.error(
+                    message="文件持久化管理器未初始化",
+                    error_code="PERSISTENCE_MANAGER_NOT_INITIALIZED"
+                )
+
+            file_paths = request.get("file_paths", [])
+            platform = request.get("platform", "modelscope")
+            repo_id = request.get("repo_id")
+            repo_type = request.get("repo_type", "dataset")
+            commit_message = request.get("commit_message", "Batch upload files")
+
+            if not file_paths:
+                return response_formatter.error(
+                    message="文件路径列表不能为空",
+                    error_code="EMPTY_FILE_LIST"
+                )
+
+            results = manager.batch_upload_files(
+                file_paths=file_paths,
+                platform=platform,
+                repo_id=repo_id,
+                repo_type=repo_type,
+                commit_message=commit_message
+            )
+
+            # 统计结果
+            success_count = sum(1 for r in results if r.success)
+            failed_count = len(results) - success_count
+
+            return response_formatter.success(
+                data={
+                    "total": len(results),
+                    "success": success_count,
+                    "failed": failed_count,
+                    "results": [
+                        {
+                            "file_path": os.path.basename(fp),
+                            "success": r.success,
+                            "platform": r.platform,
+                            "repo_id": r.repo_id,
+                            "file_path_in_repo": r.file_path,
+                            "repo_url": r.repo_url,
+                            "download_url": r.download_url,
+                            "message": r.message,
+                            "error": r.error
+                        }
+                        for fp, r in zip(file_paths, results)
+                    ]
+                },
+                message=f"批量上传完成：成功 {success_count} 个，失败 {failed_count} 个"
+            )
+        except Exception as e:
+            return response_formatter.wrap_exception(e, "批量上传失败")
+
+    # ==================== ComfyUI 集成 ====================
+    @api_router.get("/comfyui/test")
+    async def test_comfyui_connection(
+        server_url: str = Query("http://127.0.0.1:8188", description="ComfyUI 服务器地址"),
+        auth_token: Optional[str] = Query(None, description="ComfyUI 认证 Token"),
+        username: Optional[str] = Query(None, description="ComfyUI 用户名"),
+        password: Optional[str] = Query(None, description="ComfyUI 密码"),
+        payload: Dict[str, Any] = Depends(verify_token)
+    ) -> Dict[str, Any]:
+        """
+        测试 ComfyUI 连接
+
+        Args:
+            server_url: ComfyUI 服务器地址
+            auth_token: ComfyUI 认证 Token
+            username: ComfyUI 用户名
+            password: ComfyUI 密码
+            payload: 认证载荷
+
+        Returns:
+            Dict[str, Any]: 测试结果
+        """
+        try:
+            from modules.comfyui_module import comfyui_module
+
+            result = await comfyui_module.test_connection(
+                server_url=server_url,
+                auth_token=auth_token,
+                username=username,
+                password=password
+            )
+
+            return response_formatter.success(
+                data=result,
+                message="连接测试完成"
+            )
+        except Exception as e:
+            return response_formatter.wrap_exception(e, "连接测试失败")
+
+    @api_router.get("/comfyui/nodes")
+    async def get_comfyui_nodes(
+        server_url: str = Query("http://127.0.0.1:8188", description="ComfyUI 服务器地址"),
+        auth_token: Optional[str] = Query(None, description="ComfyUI 认证 Token"),
+        username: Optional[str] = Query(None, description="ComfyUI 用户名"),
+        password: Optional[str] = Query(None, description="ComfyUI 密码"),
+        payload: Dict[str, Any] = Depends(verify_token)
+    ) -> Dict[str, Any]:
+        """
+        获取 ComfyUI 可用节点列表
+
+        Args:
+            server_url: ComfyUI 服务器地址
+            auth_token: ComfyUI 认证 Token
+            username: ComfyUI 用户名
+            password: ComfyUI 密码
+            payload: 认证载荷
+
+        Returns:
+            Dict[str, Any]: 节点列表
+        """
+        try:
+            from modules.comfyui_module import comfyui_module
+
+            result = await comfyui_module.get_available_nodes(
+                server_url=server_url,
+                auth_token=auth_token,
+                username=username,
+                password=password
+            )
+
+            return response_formatter.success(
+                data=result,
+                message="获取节点列表成功"
+            )
+        except Exception as e:
+            return response_formatter.wrap_exception(e, "获取节点列表失败")
+
+    @api_router.post("/comfyui/execute")
+    async def execute_comfyui_workflow(
+        workflow_json: str = Form(..., description="工作流 JSON"),
+        server_url: str = Form("http://127.0.0.1:8188", description="ComfyUI 服务器地址"),
+        auth_token: Optional[str] = Form(None, description="ComfyUI 认证 Token"),
+        username: Optional[str] = Form(None, description="ComfyUI 用户名"),
+        password: Optional[str] = Form(None, description="ComfyUI 密码"),
+        timeout: int = Form(300, description="超时时间（秒）"),
+        upload_files_json: Optional[str] = Form(None, description="上传文件 JSON (可选)"),
+        payload: Dict[str, Any] = Depends(verify_token)
+    ) -> Dict[str, Any]:
+        """
+        执行 ComfyUI 工作流
+
+        Args:
+            workflow_json: 工作流 JSON 字符串
+            server_url: ComfyUI 服务器地址
+            auth_token: ComfyUI 认证 Token
+            username: ComfyUI 用户名
+            password: ComfyUI 密码
+            upload_files_json: 上传文件 JSON，格式为 {"filename": "filepath"}
+            payload: 认证载荷
+
+        Returns:
+            Dict[str, Any]: 执行结果
+        """
+        try:
+            from modules.comfyui_module import comfyui_module
+
+            # 解析上传文件
+            upload_files = None
+            if upload_files_json:
+                try:
+                    upload_files = json.loads(upload_files_json)
+                except json.JSONDecodeError:
+                    return response_formatter.error(
+                        message="上传文件 JSON 格式无效",
+                        error_code="INVALID_UPLOAD_FILES_JSON"
+                    )
+
+            result = await comfyui_module.execute_workflow_from_json(
+                workflow_json=workflow_json,
+                server_url=server_url,
+                auth_token=auth_token,
+                username=username,
+                password=password,
+                upload_files=upload_files,
+                timeout=timeout
+            )
+
+            if result.get("success"):
+                return response_formatter.success(
+                    data=result,
+                    message="工作流执行成功"
+                )
+            else:
+                return response_formatter.error(
+                    message=result.get("error", "工作流执行失败"),
+                    error_code="WORKFLOW_EXECUTION_FAILED"
+                )
+        except Exception as e:
+            return response_formatter.wrap_exception(e, "工作流执行失败")
+
+    @api_router.post("/comfyui/upload")
+    async def upload_file_to_comfyui(
+        file: UploadFile = File(..., description="要上传的文件"),
+        filename: Optional[str] = Form(None, description="上传后的文件名（可选）"),
+        server_url: str = Form("http://127.0.0.1:8188", description="ComfyUI 服务器地址"),
+        auth_token: Optional[str] = Form(None, description="ComfyUI 认证 Token"),
+        username: Optional[str] = Form(None, description="ComfyUI 用户名"),
+        password: Optional[str] = Form(None, description="ComfyUI 密码"),
+        payload: Dict[str, Any] = Depends(verify_token)
+    ) -> Dict[str, Any]:
+        """
+        上传文件到 ComfyUI 服务器
+
+        Args:
+            file: 要上传的文件
+            filename: 上传后的文件名（可选）
+            server_url: ComfyUI 服务器地址
+            auth_token: ComfyUI 认证 Token
+            username: ComfyUI 用户名
+            password: ComfyUI 密码
+            payload: 认证载荷
+
+        Returns:
+            Dict[str, Any]: 上传结果
+        """
+        try:
+            from modules.comfyui_module import comfyui_module
+            from utils.file_utils import FileUtils
+            import tempfile
+
+            # 创建临时文件保存上传的内容
+            job_dir = FileUtils.create_job_dir()
+            temp_path = job_dir / file.filename
+
+            with open(temp_path, "wb") as f:
+                f.write(await file.read())
+
+            # 如果没有指定文件名，使用原文件名
+            upload_filename = filename if filename else file.filename
+
+            result = await comfyui_module.upload_file(
+                filename=upload_filename,
+                filepath=str(temp_path),
+                server_url=server_url,
+                auth_token=auth_token,
+                username=username,
+                password=password
+            )
+
+            if result.get("success"):
+                return response_formatter.success(
+                    data=result,
+                    message="文件上传成功"
+                )
+            else:
+                return response_formatter.error(
+                    message=result.get("error", "文件上传失败"),
+                    error_code="FILE_UPLOAD_FAILED"
+                )
+        except Exception as e:
+            return response_formatter.wrap_exception(e, "文件上传失败")
+
+    @api_router.get("/comfyui/info")
+    async def get_comfyui_info(
+        payload: Dict[str, Any] = Depends(verify_token)
+    ) -> Dict[str, Any]:
+        """
+        获取 ComfyUI 模块信息
+
+        Args:
+            payload: 认证载荷
+
+        Returns:
+            Dict[str, Any]: 模块信息
+        """
+        try:
+            from modules.comfyui_module import comfyui_module
+
+            model_info = comfyui_module.get_model_info()
+
+            return response_formatter.success(
+                data=model_info,
+                message="获取 ComfyUI 模块信息成功"
+            )
+        except Exception as e:
+            return response_formatter.wrap_exception(e, "获取 ComfyUI 模块信息失败")
+
+    @api_router.get("/comfyui/workflows")
+    async def list_workflows(
+        payload: Dict[str, Any] = Depends(verify_token)
+    ) -> Dict[str, Any]:
+        """
+        获取 workflows 目录中的所有工作流模板列表
+
+        Args:
+            payload: 认证载荷
+
+        Returns:
+            Dict[str, Any]: 工作流模板列表
+        """
+        try:
+            from modules.comfyui_module import comfyui_module
+
+            result = comfyui_module.list_workflows()
+
+            if result.get("success"):
+                return response_formatter.success(
+                    data=result,
+                    message="获取工作流列表成功"
+                )
+            else:
+                return response_formatter.error(
+                    message=result.get("error", "获取工作流列表失败"),
+                    error_code="LIST_WORKFLOWS_FAILED"
+                )
+        except Exception as e:
+            return response_formatter.wrap_exception(e, "获取工作流列表失败")
+
+    @api_router.get("/comfyui/workflow/{workflow_name}")
+    async def get_workflow_info(
+        workflow_name: str,
+        payload: Dict[str, Any] = Depends(verify_token)
+    ) -> Dict[str, Any]:
+        """
+        获取指定工作流模板的详细信息
+
+        Args:
+            workflow_name: 工作流文件名
+            payload: 认证载荷
+
+        Returns:
+            Dict[str, Any]: 工作流详细信息
+        """
+        try:
+            from modules.comfyui_module import comfyui_module
+
+            result = comfyui_module.load_workflow_file(workflow_name)
+
+            if result.get("success"):
+                return response_formatter.success(
+                    data=result,
+                    message="获取工作流信息成功"
+                )
+            else:
+                return response_formatter.error(
+                    message=result.get("error", "获取工作流信息失败"),
+                    error_code="GET_WORKFLOW_FAILED"
+                )
+        except Exception as e:
+            return response_formatter.wrap_exception(e, "获取工作流信息失败")
+
+    @api_router.post("/comfyui/execute_from_template")
+    async def execute_workflow_from_template(
+        workflow_name: str = Form(..., description="工作流文件名"),
+        params: Optional[str] = Form(None, description="参数 JSON（可选）"),
+        server_url: str = Form("http://127.0.0.1:8188", description="ComfyUI 服务器地址"),
+        auth_token: Optional[str] = Form(None, description="ComfyUI 认证 Token"),
+        username: Optional[str] = Form(None, description="ComfyUI 用户名"),
+        password: Optional[str] = Form(None, description="ComfyUI 密码"),
+        timeout: int = Form(300, description="超时时间（秒）"),
+        upload_files_json: Optional[str] = Form(None, description="上传文件 JSON（可选）"),
+        payload: Dict[str, Any] = Depends(verify_token)
+    ) -> Dict[str, Any]:
+        """
+        从工作流模板执行工作流，支持参数替换
+
+        Args:
+            workflow_name: 工作流文件名
+            params: 参数 JSON（可选）
+            server_url: ComfyUI 服务器地址
+            auth_token: ComfyUI 认证 Token
+            username: ComfyUI 用户名
+            password: ComfyUI 密码
+            timeout: 超时时间（秒）
+            upload_files_json: 上传文件 JSON（可选）
+            payload: 认证载荷
+
+        Returns:
+            Dict[str, Any]: 执行结果
+        """
+        try:
+            import json
+            from modules.comfyui_module import comfyui_module
+
+            # 解析参数 JSON
+            params_dict = {}
+            if params:
+                try:
+                    params_dict = json.loads(params)
+                except json.JSONDecodeError as e:
+                    return response_formatter.error(
+                        message=f"参数 JSON 格式无效: {str(e)}",
+                        error_code="INVALID_PARAMS_JSON"
+                    )
+
+            # 解析上传文件 JSON
+            upload_files = {}
+            if upload_files_json:
+                try:
+                    upload_files = json.loads(upload_files_json)
+                except json.JSONDecodeError as e:
+                    return response_formatter.error(
+                        message=f"上传文件 JSON 格式无效: {str(e)}",
+                        error_code="INVALID_UPLOAD_FILES_JSON"
+                    )
+
+            result = await comfyui_module.execute_workflow_from_template(
+                workflow_name=workflow_name,
+                server_url=server_url,
+                auth_token=auth_token,
+                username=username,
+                password=password,
+                params=params_dict if params_dict else None,
+                upload_files=upload_files if upload_files else None,
+                timeout=timeout
+            )
+
+            if result.get("success"):
+                return response_formatter.success(
+                    data=result,
+                    message="工作流执行成功"
+                )
+            else:
+                return response_formatter.error(
+                    message=result.get("error", "工作流执行失败"),
+                    error_code="EXECUTE_WORKFLOW_FAILED"
+                )
+        except Exception as e:
+            return response_formatter.wrap_exception(e, "执行工作流失败")
+
+    @api_router.post("/comfyui/workflow/upload")
+    async def upload_workflow_template(
+        workflow_name: str = Form(..., description="工作流文件名"),
+        workflow_json: str = Form(..., description="工作流 JSON"),
+        overwrite: bool = Form(False, description="是否覆盖已存在"),
+        payload: Dict[str, Any] = Depends(verify_token)
+    ) -> Dict[str, Any]:
+        """
+        上传工作流模板到 workflows 目录
+
+        Args:
+            workflow_name: 工作流文件名
+            workflow_json: 工作流 JSON
+            overwrite: 是否覆盖已存在
+            payload: 认证载荷
+
+        Returns:
+            Dict[str, Any]: 上传结果
+        """
+        try:
+            from modules.comfyui_module import comfyui_module
+
+            result = comfyui_module.upload_workflow_template(
+                workflow_name=workflow_name,
+                workflow_json=workflow_json,
+                overwrite=overwrite
+            )
+
+            if result.get("success"):
+                return response_formatter.success(
+                    data=result,
+                    message="工作流模板上传成功"
+                )
+            else:
+                return response_formatter.error(
+                    message=result.get("error", "上传工作流模板失败"),
+                    error_code="UPLOAD_WORKFLOW_FAILED"
+                )
+        except Exception as e:
+            return response_formatter.wrap_exception(e, "上传工作流模板失败")
+
+    @api_router.get("/comfyui/workflow/{workflow_name}/params")
+    async def get_workflow_params(
+        workflow_name: str,
+        payload: Dict[str, Any] = Depends(verify_token)
+    ) -> Dict[str, Any]:
+        """
+        获取工作流模板的参数占位符和示例
+
+        Args:
+            workflow_name: 工作流文件名
+            payload: 认证载荷
+
+        Returns:
+            Dict[str, Any]: 参数信息
+        """
+        try:
+            from modules.comfyui_module import comfyui_module
+
+            # 加载工作流
+            load_result = comfyui_module.load_workflow_file(workflow_name)
+            if not load_result.get("success"):
+                return response_formatter.error(
+                    message=load_result.get("error", "加载工作流失败"),
+                    error_code="LOAD_WORKFLOW_FAILED"
+                )
+
+            workflow = load_result.get("workflow", {})
+
+            # 提取参数
+            params_result = comfyui_module.extract_parameters(workflow)
+
+            return response_formatter.success(
+                data=params_result,
+                message="获取工作流参数成功"
+            )
+        except Exception as e:
+            return response_formatter.wrap_exception(e, "获取工作流参数失败")
 
     # 注册路由器到应用
     app.include_router(api_router)

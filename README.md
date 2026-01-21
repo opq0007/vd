@@ -46,11 +46,6 @@ chmod +x start_linux.sh
 
 服务将在 `http://localhost:5000` 启动。
 
-## 默认账号
-
-- 管理员账号: `admin` / `admin123`
-- 普通用户账号: `user` / `user123`
-
 ## 服务地址
 
 - **Web 界面**: http://localhost:5000
@@ -65,8 +60,8 @@ POST /api/login
 Content-Type: application/json
 
 {
-    "username": "admin",
-    "password": "admin123"
+    "username": "user",
+    "password": "pwd"
 }
 ```
 
@@ -76,12 +71,8 @@ Content-Type: application/json
 
 ```http
 # 使用固定 token
-Authorization: Bearer whisper-api-key-2024
+Authorization: Bearer
 ```
-
-可用的固定 token：
-- `whisper-api-key-2024` - 自动化调用
-- `test-token` - 测试用途
 
 ### 获取模型信息
 ```http

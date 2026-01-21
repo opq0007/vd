@@ -29,9 +29,16 @@ echo ========================================
 echo 🎙️ 整合版 Whisper 语音转文字服务
 echo ========================================
 echo 🌐 服务地址: http://localhost:7860
-echo 📱 Gradio界面: http://localhost:7860/ui
 echo 📚 API文档: http://localhost:7860/docs
-echo 🔑 固定Token: whisper-api-key-2024
+
+REM Check if Gradio UI is enabled
+if "%ENABLE_GRADIO_UI%"=="false" (
+    echo 📱 运行模式: API 专用模式 (Gradio UI 已禁用)
+) else (
+    echo 📱 Gradio界面: http://localhost:7860/ui
+    echo 📱 运行模式: 完整模式 (Gradio UI 已启用)
+)
+
 echo ========================================
 echo.
 echo Starting service...
