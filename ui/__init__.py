@@ -14,6 +14,7 @@ from .image_processing_ui import create_image_processing_interface
 from .batch_processing_ui import create_batch_processing_interface
 from .template_manager_ui import get_template_manager_ui
 from .file_persistence_ui import create_file_persistence_interface
+from .comfyui_ui import create_comfyui_interface
 
 __all__ = [
     'get_custom_css',
@@ -26,5 +27,6 @@ __all__ = [
     'create_image_processing_interface',
     'create_batch_processing_interface',
     'get_template_manager_ui',
-    'create_file_persistence_interface'
+    'create_file_persistence_interface',
+    'create_comfyui_interface'
 ]

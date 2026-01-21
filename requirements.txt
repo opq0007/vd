@@ -16,3 +16,4 @@ transformers>=4.30.0
 onnxruntime
 huggingface_hub
 modelscope
+aiohttp

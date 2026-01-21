@@ -102,6 +102,12 @@ class Config:
     # ModelScope Token - 从 https://modelscope.cn/my/myaccesstoken 获取
     MODELSCOPE_TOKEN = os.environ.get("MODELSCOPE_TOKEN", "")
 
+    # ==================== ComfyUI 配置 ====================
+    # ComfyUI 服务器地址
+    COMFYUI_SERVER_URL = os.environ.get("COMFYUI_SERVER_URL", "http://127.0.0.1:8188")
+    # ComfyUI 工作流执行超时时间（秒）
+    COMFYUI_TIMEOUT = int(os.environ.get("COMFYUI_TIMEOUT", "300"))
+
     @classmethod
     def init_directories(cls):
         """初始化必要的目录"""

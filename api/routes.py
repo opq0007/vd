@@ -5,7 +5,7 @@ API 路由模块
 """
 
 from pathlib import Path
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 
 from fastapi import APIRouter, File, UploadFile, Form, HTTPException, Depends, Query
 from fastapi.responses import FileResponse
@@ -2369,6 +2369,233 @@ def register_routes(app) -> None:
             )
         except Exception as e:
             return response_formatter.wrap_exception(e, "批量上传失败")
+
+    # ==================== ComfyUI 集成 ====================
+    @api_router.get("/comfyui/test")
+    async def test_comfyui_connection(
+        server_url: str = Query("http://127.0.0.1:8188", description="ComfyUI 服务器地址"),
+        auth_token: Optional[str] = Query(None, description="ComfyUI 认证 Token"),
+        username: Optional[str] = Query(None, description="ComfyUI 用户名"),
+        password: Optional[str] = Query(None, description="ComfyUI 密码"),
+        payload: Dict[str, Any] = Depends(verify_token)
+    ) -> Dict[str, Any]:
+        """
+        测试 ComfyUI 连接
+
+        Args:
+            server_url: ComfyUI 服务器地址
+            auth_token: ComfyUI 认证 Token
+            username: ComfyUI 用户名
+            password: ComfyUI 密码
+            payload: 认证载荷
+
+        Returns:
+            Dict[str, Any]: 测试结果
+        """
+        try:
+            from modules.comfyui_module import comfyui_module
+
+            result = await comfyui_module.test_connection(
+                server_url=server_url,
+                auth_token=auth_token,
+                username=username,
+                password=password
+            )
+
+            return response_formatter.success(
+                data=result,
+                message="连接测试完成"
+            )
+        except Exception as e:
+            return response_formatter.wrap_exception(e, "连接测试失败")
+
+    @api_router.get("/comfyui/nodes")
+    async def get_comfyui_nodes(
+        server_url: str = Query("http://127.0.0.1:8188", description="ComfyUI 服务器地址"),
+        auth_token: Optional[str] = Query(None, description="ComfyUI 认证 Token"),
+        username: Optional[str] = Query(None, description="ComfyUI 用户名"),
+        password: Optional[str] = Query(None, description="ComfyUI 密码"),
+        payload: Dict[str, Any] = Depends(verify_token)
+    ) -> Dict[str, Any]:
+        """
+        获取 ComfyUI 可用节点列表
+
+        Args:
+            server_url: ComfyUI 服务器地址
+            auth_token: ComfyUI 认证 Token
+            username: ComfyUI 用户名
+            password: ComfyUI 密码
+            payload: 认证载荷
+
+        Returns:
+            Dict[str, Any]: 节点列表
+        """
+        try:
+            from modules.comfyui_module import comfyui_module
+
+            result = await comfyui_module.get_available_nodes(
+                server_url=server_url,
+                auth_token=auth_token,
+                username=username,
+                password=password
+            )
+
+            return response_formatter.success(
+                data=result,
+                message="获取节点列表成功"
+            )
+        except Exception as e:
+            return response_formatter.wrap_exception(e, "获取节点列表失败")
+
+    @api_router.post("/comfyui/execute")
+    async def execute_comfyui_workflow(
+        workflow_json: str = Form(..., description="工作流 JSON"),
+        server_url: str = Form("http://127.0.0.1:8188", description="ComfyUI 服务器地址"),
+        auth_token: Optional[str] = Form(None, description="ComfyUI 认证 Token"),
+        username: Optional[str] = Form(None, description="ComfyUI 用户名"),
+        password: Optional[str] = Form(None, description="ComfyUI 密码"),
+        timeout: int = Form(300, description="超时时间（秒）"),
+        upload_files_json: Optional[str] = Form(None, description="上传文件 JSON (可选)"),
+        payload: Dict[str, Any] = Depends(verify_token)
+    ) -> Dict[str, Any]:
+        """
+        执行 ComfyUI 工作流
+
+        Args:
+            workflow_json: 工作流 JSON 字符串
+            server_url: ComfyUI 服务器地址
+            auth_token: ComfyUI 认证 Token
+            username: ComfyUI 用户名
+            password: ComfyUI 密码
+            upload_files_json: 上传文件 JSON，格式为 {"filename": "filepath"}
+            payload: 认证载荷
+
+        Returns:
+            Dict[str, Any]: 执行结果
+        """
+        try:
+            from modules.comfyui_module import comfyui_module
+
+            # 解析上传文件
+            upload_files = None
+            if upload_files_json:
+                try:
+                    upload_files = json.loads(upload_files_json)
+                except json.JSONDecodeError:
+                    return response_formatter.error(
+                        message="上传文件 JSON 格式无效",
+                        error_code="INVALID_UPLOAD_FILES_JSON"
+                    )
+
+            result = await comfyui_module.execute_workflow_from_json(
+                workflow_json=workflow_json,
+                server_url=server_url,
+                auth_token=auth_token,
+                username=username,
+                password=password,
+                upload_files=upload_files,
+                timeout=timeout
+            )
+
+            if result.get("success"):
+                return response_formatter.success(
+                    data=result,
+                    message="工作流执行成功"
+                )
+            else:
+                return response_formatter.error(
+                    message=result.get("error", "工作流执行失败"),
+                    error_code="WORKFLOW_EXECUTION_FAILED"
+                )
+        except Exception as e:
+            return response_formatter.wrap_exception(e, "工作流执行失败")
+
+    @api_router.post("/comfyui/upload")
+    async def upload_file_to_comfyui(
+        file: UploadFile = File(..., description="要上传的文件"),
+        filename: Optional[str] = Form(None, description="上传后的文件名（可选）"),
+        server_url: str = Form("http://127.0.0.1:8188", description="ComfyUI 服务器地址"),
+        auth_token: Optional[str] = Form(None, description="ComfyUI 认证 Token"),
+        username: Optional[str] = Form(None, description="ComfyUI 用户名"),
+        password: Optional[str] = Form(None, description="ComfyUI 密码"),
+        payload: Dict[str, Any] = Depends(verify_token)
+    ) -> Dict[str, Any]:
+        """
+        上传文件到 ComfyUI 服务器
+
+        Args:
+            file: 要上传的文件
+            filename: 上传后的文件名（可选）
+            server_url: ComfyUI 服务器地址
+            auth_token: ComfyUI 认证 Token
+            username: ComfyUI 用户名
+            password: ComfyUI 密码
+            payload: 认证载荷
+
+        Returns:
+            Dict[str, Any]: 上传结果
+        """
+        try:
+            from modules.comfyui_module import comfyui_module
+            from utils.file_utils import FileUtils
+            import tempfile
+
+            # 创建临时文件保存上传的内容
+            job_dir = FileUtils.create_job_dir()
+            temp_path = job_dir / file.filename
+
+            with open(temp_path, "wb") as f:
+                f.write(await file.read())
+
+            # 如果没有指定文件名，使用原文件名
+            upload_filename = filename if filename else file.filename
+
+            result = await comfyui_module.upload_file(
+                filename=upload_filename,
+                filepath=str(temp_path),
+                server_url=server_url,
+                auth_token=auth_token,
+                username=username,
+                password=password
+            )
+
+            if result.get("success"):
+                return response_formatter.success(
+                    data=result,
+                    message="文件上传成功"
+                )
+            else:
+                return response_formatter.error(
+                    message=result.get("error", "文件上传失败"),
+                    error_code="FILE_UPLOAD_FAILED"
+                )
+        except Exception as e:
+            return response_formatter.wrap_exception(e, "文件上传失败")
+
+    @api_router.get("/comfyui/info")
+    async def get_comfyui_info(
+        payload: Dict[str, Any] = Depends(verify_token)
+    ) -> Dict[str, Any]:
+        """
+        获取 ComfyUI 模块信息
+
+        Args:
+            payload: 认证载荷
+
+        Returns:
+            Dict[str, Any]: 模块信息
+        """
+        try:
+            from modules.comfyui_module import comfyui_module
+
+            model_info = comfyui_module.get_model_info()
+
+            return response_formatter.success(
+                data=model_info,
+                message="获取 ComfyUI 模块信息成功"
+            )
+        except Exception as e:
+            return response_formatter.wrap_exception(e, "获取 ComfyUI 模块信息失败")
 
     # 注册路由器到应用
     app.include_router(api_router)
