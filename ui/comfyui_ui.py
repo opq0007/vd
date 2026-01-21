@@ -12,6 +12,284 @@ from modules.comfyui_module import comfyui_module
 from utils.logger import Logger
 
 
+def list_workflow_templates() -> str:
+    """
+    列出 workflows 目录中的所有工作流模板
+
+    Returns:
+        str: 工作流模板列表
+    """
+    try:
+        result = comfyui_module.list_workflows()
+
+        if result.get("success"):
+            workflows = result.get("workflows", [])
+            output = f"✅ 找到 {result.get('count', 0)} 个工作流模板\n\n"
+            output += "-" * 80 + "\n"
+
+            for i, wf in enumerate(workflows, 1):
+                output += f"\n{i}. {wf['filename']}\n"
+                output += f"   路径: {wf['path']}\n"
+                output += f"   大小: {wf['size']} 字节\n"
+
+            output += "\n" + "-" * 80 + "\n"
+            output += "\n💡 提示：选择一个工作流模板后，可以输入参数来替换模板中的占位符。\n"
+            output += "占位符格式：{{参数名}}，例如 {{prompt}}、{{seed}} 等。"
+
+            return output
+        else:
+            return f"❌ 获取工作流列表失败\n\n错误：{result.get('error')}"
+    except Exception as e:
+        Logger.error(f"获取工作流列表失败: {str(e)}")
+        return f"❌ 获取工作流列表时发生异常\n\n详细信息：{str(e)}"
+
+
+def load_workflow_template_info(workflow_name: str) -> str:
+        """
+        加载工作流模板信息
+
+        Args:
+            workflow_name: 工作流文件名
+
+        Returns:
+            str: 工作流信息
+        """
+        try:
+            result = comfyui_module.load_workflow_file(workflow_name)
+
+            if result.get("success"):
+                workflow = result.get("workflow", {})
+                output = f"✅ 工作流加载成功！\n\n"
+                output += f"文件名：{result.get('workflow_name', '')}\n"
+                output += f"路径：{result.get('workflow_path', '')}\n"
+                output += f"节点数量：{len(workflow)}\n\n"
+
+                # 使用模块方法提取参数
+                params_result = comfyui_module.extract_parameters(workflow)
+                params_found = params_result.get("parameters", [])
+
+                if params_found:
+                    output += f"📝 发现 {len(params_found)} 个参数占位符：\n"
+                    for param in params_found:
+                        output += f"  - {{{{ {param} }}}}\n"
+                    output += "\n💡 提示：可以在参数 JSON 中定义这些参数的值。"
+                else:
+                    output += "📝 未发现参数占位符，此工作流不需要参数替换。"
+
+                return output
+            else:
+                return f"❌ 加载工作流失败\n\n错误：{result.get('error')}"
+        except Exception as e:
+            Logger.error(f"加载工作流失败: {str(e)}")
+            return f"❌ 加载工作流时发生异常\n\n详细信息：{str(e)}"
+
+
+def upload_workflow_template(
+    workflow_name: str,
+    workflow_json: str,
+    overwrite: bool = False
+) -> str:
+    """
+    上传工作流模板
+
+    Args:
+        workflow_name: 工作流文件名
+        workflow_json: 工作流 JSON 字符串
+        overwrite: 是否覆盖已存在的文件
+
+    Returns:
+        str: 上传结果
+    """
+    try:
+        if not workflow_name.strip():
+            return "❌ 错误：工作流文件名不能为空"
+
+        if not workflow_json.strip():
+            return "❌ 错误：工作流 JSON 不能为空"
+
+        result = comfyui_module.upload_workflow_template(
+            workflow_name=workflow_name,
+            workflow_json=workflow_json,
+            overwrite=overwrite
+        )
+
+        if result.get("success"):
+            output = f"✅ 工作流模板上传成功！\n\n"
+            output += f"文件名：{result.get('workflow_name', '')}\n"
+            output += f"路径：{result.get('workflow_path', '')}\n"
+            output += f"消息：{result.get('message', '')}"
+            return output
+        else:
+            return f"❌ 上传失败\n\n错误：{result.get('error')}"
+    except Exception as e:
+        Logger.error(f"上传工作流模板失败: {str(e)}")
+        return f"❌ 上传工作流模板时发生异常\n\n详细信息：{str(e)}"
+
+
+def on_workflow_select(workflow_name: str):
+    """
+    当选择工作流模板时的回调函数
+    自动加载模板信息并生成参数示例
+
+    Args:
+        workflow_name: 工作流文件名
+
+    Returns:
+        tuple: (模板信息, 参数示例)
+    """
+    if not workflow_name:
+        return "", ""
+
+    try:
+        # 加载模板信息
+        info_result = comfyui_module.load_workflow_file(workflow_name)
+
+        if not info_result.get("success"):
+            return f"❌ 加载失败: {info_result.get('error')}", ""
+
+        workflow = info_result.get("workflow", {})
+
+        # 提取参数并生成示例
+        params_result = comfyui_module.extract_parameters(workflow)
+
+        # 生成模板信息
+        info_output = f"✅ 工作流加载成功！\n\n"
+        info_output += f"文件名：{info_result.get('workflow_name', '')}\n"
+        info_output += f"路径：{info_result.get('workflow_path', '')}\n"
+        info_output += f"节点数量：{len(workflow)}\n\n"
+
+        params_found = params_result.get("parameters", [])
+
+        if params_found:
+            info_output += f"📝 发现 {len(params_found)} 个参数占位符：\n"
+            for param in params_found:
+                info_output += f"  - {{{{ {param} }}}}\n"
+            info_output += "\n💡 提示：参数示例已自动填充到下方输入框中。"
+        else:
+            info_output += "📝 未发现参数占位符，此工作流不需要参数替换。"
+
+        # 生成参数示例 JSON
+        params_example = params_result.get("example", {})
+        if params_example:
+            params_json = json.dumps(params_example, indent=2, ensure_ascii=False)
+        else:
+            params_json = ""
+
+        return info_output, params_json
+
+    except Exception as e:
+        Logger.error(f"加载工作流信息失败: {str(e)}")
+        return f"❌ 加载失败: {str(e)}", ""
+
+
+def execute_workflow_from_template(    workflow_name: str,
+    params_json: str,
+    server_url: str,
+    auth_token: str = "",
+    username: str = "",
+    password: str = "",
+    timeout: int = 300,
+    progress=gr.Progress()
+) -> str:
+    """
+    从工作流模板执行工作流
+
+    Args:
+        workflow_name: 工作流文件名
+        params_json: 参数 JSON 字符串
+        server_url: ComfyUI 服务器地址
+        auth_token: 认证 Token
+        username: 用户名
+        password: 密码
+        timeout: 超时时间（秒），默认 300 秒
+        progress: Gradio 进度条
+
+    Returns:
+        str: 执行结果
+    """
+    try:
+        import asyncio
+
+        if not workflow_name.strip():
+            return "❌ 错误：请选择工作流模板"
+
+        # 解析参数 JSON
+        params = {}
+        if params_json.strip():
+            try:
+                params = json.loads(params_json)
+            except json.JSONDecodeError as e:
+                return f"❌ 错误：参数 JSON 格式无效\n\n{str(e)}"
+
+        progress(0.1, desc="加载工作流模板...")
+
+        async def run_execute():
+            result = await comfyui_module.execute_workflow_from_template(
+                workflow_name=workflow_name,
+                server_url=server_url,
+                auth_token=auth_token if auth_token.strip() else None,
+                username=username if username.strip() else None,
+                password=password if password.strip() else None,
+                params=params if params else None,
+                timeout=timeout
+            )
+            return result
+
+        progress(0.3, desc="提交工作流...")
+        result = asyncio.run(run_execute())
+
+        progress(1.0, desc="执行完成！")
+
+        if result.get("success"):
+            output = f"✅ 工作流执行成功！\n\n"
+            output += f"工作流模板：{workflow_name}\n"
+            output += f"提示 ID：{result.get('prompt_id')}\n"
+            output += f"超时时间：{timeout}秒\n"
+
+            if params:
+                output += f"使用的参数：\n{json.dumps(params, indent=2, ensure_ascii=False)}\n\n"
+
+            # 输出图片
+            if result.get("output_images"):
+                output += f"📸 输出图片（{len(result['output_images'])}张）：\n"
+                for i, img_info in enumerate(result['output_images'], 1):
+                    output += f"  {i}. 文件名: {img_info.get('filename', '')}\n"
+                    output += f"     下载链接: {img_info.get('url', '')}\n"
+                output += "\n"
+
+            # 输出音频
+            if result.get("output_audio"):
+                output += f"🎵 输出音频（{len(result['output_audio'])}个）：\n"
+                for i, audio_info in enumerate(result['output_audio'], 1):
+                    output += f"  {i}. 文件名: {audio_info.get('filename', '')}\n"
+                    output += f"     下载链接: {audio_info.get('url', '')}\n"
+                output += "\n"
+
+            # 输出视频
+            if result.get("output_videos"):
+                output += f"🎬 输出视频（{len(result['output_videos'])}个）：\n"
+                for i, video_info in enumerate(result['output_videos'], 1):
+                    output += f"  {i}. 文件名: {video_info.get('filename', '')}\n"
+                    output += f"     下载链接: {video_info.get('url', '')}\n"
+                output += "\n"
+
+            # 输出其他文件
+            if result.get("output_files"):
+                output += f"📁 输出文件（{len(result['output_files'])}个）：\n"
+                for i, file_info in enumerate(result['output_files'], 1):
+                    output += f"  {i}. 文件名: {file_info.get('filename', '')}\n"
+                    output += f"     下载链接: {file_info.get('url', '')}\n"
+                output += "\n"
+
+            output += f"消息：{result.get('message', '')}"
+            return output
+        else:
+            return f"❌ 工作流执行失败\n\n错误：{result.get('error')}"
+    except Exception as e:
+        Logger.error(f"执行工作流失败: {str(e)}")
+        return f"❌ 执行工作流时发生异常\n\n详细信息：{str(e)}"
+
+
 def test_comfyui_connection(
     server_url: str,
     auth_token: str = "",
@@ -347,6 +625,113 @@ def create_comfyui_interface() -> gr.Blocks:
                     placeholder='点击"获取节点列表"按钮查看可用节点...'
                 )
 
+            # 工作流模板选项卡
+            with gr.TabItem("📋 工作流模板"):
+                # 工作流选择和刷新
+                with gr.Row():
+                    workflow_name_dropdown = gr.Dropdown(
+                        label="选择模板",
+                        choices=[],
+                        scale=4,
+                        info="选择工作流模板"
+                    )
+                    refresh_workflows_btn = gr.Button(
+                        "🔄",
+                        variant="secondary",
+                        size="sm",
+                        scale=0,
+                        min_width=60
+                    )
+                    upload_template_btn = gr.Button(
+                        "📤",
+                        variant="secondary",
+                        size="sm",
+                        scale=0,
+                        min_width=60
+                    )
+
+                # 上传模板区域（默认折叠）
+                with gr.Accordion("📤 上传新模板", open=False):
+                    with gr.Row():
+                        upload_workflow_name_input = gr.Textbox(
+                            label="文件名",
+                            placeholder="my_workflow.json",
+                            scale=3
+                        )
+                        upload_overwrite_checkbox = gr.Checkbox(
+                            label="覆盖",
+                            value=False,
+                            scale=1
+                        )
+
+                    upload_workflow_json_textarea = gr.Textbox(
+                        label="工作流 JSON",
+                        placeholder='{\n  "1": {\n    "inputs": {\n      "text": "{{prompt}}"\n    }\n  }\n}',
+                        lines=6,
+                        info="支持 {{参数名}} 占位符"
+                    )
+
+                    with gr.Row():
+                        do_upload_btn = gr.Button(
+                            "上传",
+                            variant="primary",
+                            size="sm",
+                            scale=1
+                        )
+
+                    upload_result_output = gr.Textbox(
+                        label="上传结果",
+                        lines=3,
+                        interactive=False,
+                        placeholder="上传结果..."
+                    )
+
+                # 模板信息和参数配置（并排显示）
+                with gr.Row():
+                    with gr.Column(scale=1):
+                        with gr.Accordion("📋 模板信息", open=False):
+                            template_info_output = gr.Textbox(
+                                label="详情",
+                                lines=4,
+                                interactive=False,
+                                placeholder='选择模板后显示...'
+                            )
+                    
+                    with gr.Column(scale=1):
+                        with gr.Accordion("⚙️ 参数配置", open=True):
+                            params_json_textarea = gr.Textbox(
+                                label="参数 JSON",
+                                placeholder='自动填充参数示例...',
+                                lines=4,
+                                info="替换 {{参数名}}"
+                            )
+
+                # 执行配置和按钮
+                with gr.Row():
+                    template_timeout_input = gr.Number(
+                        label="超时(秒)",
+                        value=300,
+                        minimum=10,
+                        maximum=3600,
+                        step=10,
+                        scale=1
+                    )
+                    execute_template_btn = gr.Button(
+                        "🚀 执行",
+                        variant="primary",
+                        size="sm",
+                        scale=1
+                    )
+
+                # 执行结果
+                with gr.Accordion("📊 执行结果", open=False):
+                    template_output = gr.Textbox(
+                        label="结果",
+                        lines=8,
+                        interactive=False,
+                        placeholder="执行结果将显示在这里..."
+                    )
+
             # 工作流执行选项卡
             with gr.TabItem("⚙️ 工作流执行"):
                 gr.Markdown("### 工作流配置")
@@ -536,6 +921,90 @@ A: 支持图片（.png, .jpg, .jpeg, .gif, .bmp, .webp）、音频（.mp3, .wav,
                 password_input
             ],
             outputs=nodes_output
+        )
+
+        # 工作流模板事件绑定
+        def update_workflow_dropdown():
+            """更新工作流下拉列表"""
+            result = comfyui_module.list_workflows()
+            if result.get("success"):
+                return gr.Dropdown(
+                    choices=[wf['filename'] for wf in result['workflows']],
+                    value=None
+                )
+            else:
+                return gr.Dropdown(choices=[], value=None)
+
+        # 刷新后更新下拉列表
+        def refresh_and_update():
+            """刷新工作流列表并更新下拉框"""
+            result = comfyui_module.list_workflows()
+            if result.get("success"):
+                choices = [wf['filename'] for wf in result['workflows']]
+            else:
+                choices = []
+            return gr.Dropdown(choices=choices, value=None)
+
+        refresh_workflows_btn.click(
+            fn=refresh_and_update,
+            inputs=[],
+            outputs=[workflow_name_dropdown]
+        )
+
+        # 选择工作流时自动加载信息和参数示例
+        workflow_name_dropdown.change(
+            fn=on_workflow_select,
+            inputs=[workflow_name_dropdown],
+            outputs=[template_info_output, params_json_textarea]
+        )
+
+        # 上传工作流模板
+        do_upload_btn.click(
+            fn=upload_workflow_template,
+            inputs=[
+                upload_workflow_name_input,
+                upload_workflow_json_textarea,
+                upload_overwrite_checkbox
+            ],
+            outputs=[upload_result_output]
+        )
+
+        # 上传成功后刷新列表
+        def upload_and_refresh(workflow_name, workflow_json, overwrite):
+            """上传并刷新列表"""
+            upload_result = upload_workflow_template(workflow_name, workflow_json, overwrite)
+            dropdown_result = refresh_and_update()
+            return upload_result, dropdown_result
+
+        do_upload_btn.click(
+            fn=upload_and_refresh,
+            inputs=[
+                upload_workflow_name_input,
+                upload_workflow_json_textarea,
+                upload_overwrite_checkbox
+            ],
+            outputs=[upload_result_output, workflow_name_dropdown]
+        )
+
+        execute_template_btn.click(
+            fn=execute_workflow_from_template,
+            inputs=[
+                workflow_name_dropdown,
+                params_json_textarea,
+                server_url_input,
+                auth_token_input,
+                username_input,
+                password_input,
+                template_timeout_input
+            ],
+            outputs=template_output
+        )
+
+        # 初始化时加载工作流列表
+        comfyui_interface.load(
+            fn=refresh_and_update,
+            inputs=[],
+            outputs=[workflow_name_dropdown]
         )
 
         execute_workflow_btn.click(
