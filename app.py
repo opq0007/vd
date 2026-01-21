@@ -50,7 +50,8 @@ from ui import (
     create_image_processing_interface,
     create_batch_processing_interface,
     get_template_manager_ui,
-    create_file_persistence_interface
+    create_file_persistence_interface,
+    create_comfyui_interface
 )
 
 # 初始化日志
@@ -190,6 +191,10 @@ def create_gradio_interface():
             # 文件持久化标签页
             with gr.TabItem("☁️ 文件持久化"):
                 create_file_persistence_interface()
+
+            # ComfyUI 集成标签页
+            with gr.TabItem("🎨 ComfyUI 集成"):
+                create_comfyui_interface()
 
             # API文档标签页
             with gr.TabItem("API文档"):
