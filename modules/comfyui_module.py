@@ -18,6 +18,9 @@ from dataclasses import dataclass
 
 from utils.logger import Logger
 
+# workflows 目录路径
+WORKFLOWS_DIR = Path(__file__).parent.parent / "workflows"
+
 
 @dataclass
 class ComfyUIResult:
@@ -754,6 +757,198 @@ class ComfyUIModule:
             "default_server_url": self.default_server_url,
             "description": "ComfyUI 集成模块，支持工作流执行和多种媒体文件生成"
         }
+
+    def list_workflows(self) -> Dict[str, Any]:
+        """
+        列出 workflows 目录中的所有工作流文件
+
+        Returns:
+            Dict[str, Any]: 工作流文件列表
+        """
+        try:
+            if not WORKFLOWS_DIR.exists():
+                return {
+                    "success": False,
+                    "error": f"workflows 目录不存在: {WORKFLOWS_DIR}"
+                }
+
+            workflow_files = []
+            for file_path in WORKFLOWS_DIR.glob("*.json"):
+                workflow_files.append({
+                    "filename": file_path.name,
+                    "path": str(file_path),
+                    "size": file_path.stat().st_size
+                })
+
+            return {
+                "success": True,
+                "workflows": workflow_files,
+                "count": len(workflow_files),
+                "workflows_dir": str(WORKFLOWS_DIR)
+            }
+        except Exception as e:
+            return {
+                "success": False,
+                "error": str(e)
+            }
+
+    def load_workflow_file(self, workflow_name: str) -> Dict[str, Any]:
+        """
+        从 workflows 目录加载工作流文件
+
+        Args:
+            workflow_name: 工作流文件名（如 "example_text_to_image.json"）
+
+        Returns:
+            Dict[str, Any]: 工作流内容
+        """
+        try:
+            workflow_path = WORKFLOWS_DIR / workflow_name
+
+            if not workflow_path.exists():
+                return {
+                    "success": False,
+                    "error": f"工作流文件不存在: {workflow_name}"
+                }
+
+            with open(workflow_path, 'r', encoding='utf-8') as f:
+                workflow = json.load(f)
+
+            return {
+                "success": True,
+                "workflow": workflow,
+                "workflow_name": workflow_name,
+                "workflow_path": str(workflow_path)
+            }
+        except json.JSONDecodeError as e:
+            return {
+                "success": False,
+                "error": f"工作流 JSON 解析失败: {str(e)}"
+            }
+        except Exception as e:
+            return {
+                "success": False,
+                "error": str(e)
+            }
+
+    def _replace_parameters(
+        self,
+        workflow: Dict[str, Any],
+        params: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """
+        替换工作流中的参数占位符
+
+        支持的占位符格式：
+        - {{param_name}}: 字符串、数字、布尔值
+        - {{nested.param}}: 嵌套参数
+
+        Args:
+            workflow: 工作流字典
+            params: 参数字典
+
+        Returns:
+            Dict[str, Any]: 替换后的工作流
+        """
+        import re
+
+        def replace_in_value(value):
+            """递归替换值中的参数"""
+            if isinstance(value, str):
+                # 匹配 {{param}} 格式的占位符
+                pattern = r'\{\{(\w+(?:\.\w+)*)\}\}'
+                
+                def replace_match(match):
+                    param_path = match.group(1)
+                    # 支持点号表示法，如 "model.name"
+                    keys = param_path.split('.')
+                    param_value = params
+                    
+                    try:
+                        for key in keys:
+                            param_value = param_value[key]
+                        # 将替换值转换为字符串
+                        return str(param_value)
+                    except (KeyError, TypeError):
+                        # 如果参数不存在，保留原始占位符
+                        return match.group(0)
+                
+                return re.sub(pattern, replace_match, value)
+            elif isinstance(value, dict):
+                return {k: replace_in_value(v) for k, v in value.items()}
+            elif isinstance(value, list):
+                return [replace_in_value(item) for item in value]
+            else:
+                return value
+
+        # 深拷贝工作流以避免修改原始数据
+        import copy
+        workflow_copy = copy.deepcopy(workflow)
+        
+        # 递归替换所有值中的参数
+        return replace_in_value(workflow_copy)
+
+    async def execute_workflow_from_template(
+        self,
+        workflow_name: str,
+        server_url: Optional[str] = None,
+        auth_token: Optional[str] = None,
+        username: Optional[str] = None,
+        password: Optional[str] = None,
+        params: Optional[Dict[str, Any]] = None,
+        upload_files: Optional[Dict[str, str]] = None,
+        timeout: int = 300
+    ) -> Dict[str, Any]:
+        """
+        从 workflows 目录中的模板执行工作流，支持参数替换
+
+        Args:
+            workflow_name: 工作流文件名（如 "example_text_to_image.json"）
+            server_url: ComfyUI 服务器地址
+            auth_token: 认证 Token
+            username: 用户名
+            password: 密码
+            params: 参数字典，用于替换工作流中的占位符
+            upload_files: 要上传的文件 {filename: filepath}，支持多种格式
+            timeout: 超时时间（秒），默认 300 秒
+
+        Returns:
+            Dict[str, Any]: 执行结果
+        """
+        try:
+            # 加载工作流文件
+            load_result = self.load_workflow_file(workflow_name)
+            if not load_result["success"]:
+                return {
+                    "success": False,
+                    "error": load_result["error"]
+                }
+
+            workflow = load_result["workflow"]
+
+            # 如果提供了参数，进行参数替换
+            if params:
+                workflow = self._replace_parameters(workflow, params)
+                Logger.info(f"已替换工作流 {workflow_name} 中的参数: {list(params.keys())}")
+
+            # 将工作流转换为 JSON 字符串
+            workflow_json = json.dumps(workflow, ensure_ascii=False)
+
+            # 执行工作流
+            return await self.execute_workflow_from_json(
+                workflow_json,
+                server_url,
+                auth_token,
+                username,
+                password,
+                upload_files,
+                timeout
+            )
+        except Exception as e:
+            return {
+                "success": False,
+                "error": str(e)
+            }
 
     async def upload_file(
         self,

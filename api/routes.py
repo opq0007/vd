@@ -2597,5 +2597,148 @@ def register_routes(app) -> None:
         except Exception as e:
             return response_formatter.wrap_exception(e, "获取 ComfyUI 模块信息失败")
 
+    @api_router.get("/comfyui/workflows")
+    async def list_workflows(
+        payload: Dict[str, Any] = Depends(verify_token)
+    ) -> Dict[str, Any]:
+        """
+        获取 workflows 目录中的所有工作流模板列表
+
+        Args:
+            payload: 认证载荷
+
+        Returns:
+            Dict[str, Any]: 工作流模板列表
+        """
+        try:
+            from modules.comfyui_module import comfyui_module
+
+            result = comfyui_module.list_workflows()
+
+            if result.get("success"):
+                return response_formatter.success(
+                    data=result,
+                    message="获取工作流列表成功"
+                )
+            else:
+                return response_formatter.error(
+                    message=result.get("error", "获取工作流列表失败"),
+                    error_code="LIST_WORKFLOWS_FAILED"
+                )
+        except Exception as e:
+            return response_formatter.wrap_exception(e, "获取工作流列表失败")
+
+    @api_router.get("/comfyui/workflow/{workflow_name}")
+    async def get_workflow_info(
+        workflow_name: str,
+        payload: Dict[str, Any] = Depends(verify_token)
+    ) -> Dict[str, Any]:
+        """
+        获取指定工作流模板的详细信息
+
+        Args:
+            workflow_name: 工作流文件名
+            payload: 认证载荷
+
+        Returns:
+            Dict[str, Any]: 工作流详细信息
+        """
+        try:
+            from modules.comfyui_module import comfyui_module
+
+            result = comfyui_module.load_workflow_file(workflow_name)
+
+            if result.get("success"):
+                return response_formatter.success(
+                    data=result,
+                    message="获取工作流信息成功"
+                )
+            else:
+                return response_formatter.error(
+                    message=result.get("error", "获取工作流信息失败"),
+                    error_code="GET_WORKFLOW_FAILED"
+                )
+        except Exception as e:
+            return response_formatter.wrap_exception(e, "获取工作流信息失败")
+
+    @api_router.post("/comfyui/execute_from_template")
+    async def execute_workflow_from_template(
+        workflow_name: str = Form(..., description="工作流文件名"),
+        params: Optional[str] = Form(None, description="参数 JSON（可选）"),
+        server_url: str = Form("http://127.0.0.1:8188", description="ComfyUI 服务器地址"),
+        auth_token: Optional[str] = Form(None, description="ComfyUI 认证 Token"),
+        username: Optional[str] = Form(None, description="ComfyUI 用户名"),
+        password: Optional[str] = Form(None, description="ComfyUI 密码"),
+        timeout: int = Form(300, description="超时时间（秒）"),
+        upload_files_json: Optional[str] = Form(None, description="上传文件 JSON（可选）"),
+        payload: Dict[str, Any] = Depends(verify_token)
+    ) -> Dict[str, Any]:
+        """
+        从工作流模板执行工作流，支持参数替换
+
+        Args:
+            workflow_name: 工作流文件名
+            params: 参数 JSON（可选）
+            server_url: ComfyUI 服务器地址
+            auth_token: ComfyUI 认证 Token
+            username: ComfyUI 用户名
+            password: ComfyUI 密码
+            timeout: 超时时间（秒）
+            upload_files_json: 上传文件 JSON（可选）
+            payload: 认证载荷
+
+        Returns:
+            Dict[str, Any]: 执行结果
+        """
+        try:
+            import json
+            from modules.comfyui_module import comfyui_module
+
+            # 解析参数 JSON
+            params_dict = {}
+            if params:
+                try:
+                    params_dict = json.loads(params)
+                except json.JSONDecodeError as e:
+                    return response_formatter.error(
+                        message=f"参数 JSON 格式无效: {str(e)}",
+                        error_code="INVALID_PARAMS_JSON"
+                    )
+
+            # 解析上传文件 JSON
+            upload_files = {}
+            if upload_files_json:
+                try:
+                    upload_files = json.loads(upload_files_json)
+                except json.JSONDecodeError as e:
+                    return response_formatter.error(
+                        message=f"上传文件 JSON 格式无效: {str(e)}",
+                        error_code="INVALID_UPLOAD_FILES_JSON"
+                    )
+
+            result = await comfyui_module.execute_workflow_from_template(
+                workflow_name=workflow_name,
+                server_url=server_url,
+                auth_token=auth_token,
+                username=username,
+                password=password,
+                params=params_dict if params_dict else None,
+                upload_files=upload_files if upload_files else None,
+                timeout=timeout
+            )
+
+            if result.get("success"):
+                return response_formatter.success(
+                    data=result,
+                    message="工作流执行成功"
+                )
+            else:
+                return response_formatter.error(
+                    message=result.get("error", "工作流执行失败"),
+                    error_code="EXECUTE_WORKFLOW_FAILED"
+                )
+        except Exception as e:
+            return response_formatter.wrap_exception(e, "执行工作流失败")
+
     # 注册路由器到应用
     app.include_router(api_router)
