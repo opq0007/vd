@@ -2740,5 +2740,84 @@ def register_routes(app) -> None:
         except Exception as e:
             return response_formatter.wrap_exception(e, "执行工作流失败")
 
+    @api_router.post("/comfyui/workflow/upload")
+    async def upload_workflow_template(
+        workflow_name: str = Form(..., description="工作流文件名"),
+        workflow_json: str = Form(..., description="工作流 JSON"),
+        overwrite: bool = Form(False, description="是否覆盖已存在"),
+        payload: Dict[str, Any] = Depends(verify_token)
+    ) -> Dict[str, Any]:
+        """
+        上传工作流模板到 workflows 目录
+
+        Args:
+            workflow_name: 工作流文件名
+            workflow_json: 工作流 JSON
+            overwrite: 是否覆盖已存在
+            payload: 认证载荷
+
+        Returns:
+            Dict[str, Any]: 上传结果
+        """
+        try:
+            from modules.comfyui_module import comfyui_module
+
+            result = comfyui_module.upload_workflow_template(
+                workflow_name=workflow_name,
+                workflow_json=workflow_json,
+                overwrite=overwrite
+            )
+
+            if result.get("success"):
+                return response_formatter.success(
+                    data=result,
+                    message="工作流模板上传成功"
+                )
+            else:
+                return response_formatter.error(
+                    message=result.get("error", "上传工作流模板失败"),
+                    error_code="UPLOAD_WORKFLOW_FAILED"
+                )
+        except Exception as e:
+            return response_formatter.wrap_exception(e, "上传工作流模板失败")
+
+    @api_router.get("/comfyui/workflow/{workflow_name}/params")
+    async def get_workflow_params(
+        workflow_name: str,
+        payload: Dict[str, Any] = Depends(verify_token)
+    ) -> Dict[str, Any]:
+        """
+        获取工作流模板的参数占位符和示例
+
+        Args:
+            workflow_name: 工作流文件名
+            payload: 认证载荷
+
+        Returns:
+            Dict[str, Any]: 参数信息
+        """
+        try:
+            from modules.comfyui_module import comfyui_module
+
+            # 加载工作流
+            load_result = comfyui_module.load_workflow_file(workflow_name)
+            if not load_result.get("success"):
+                return response_formatter.error(
+                    message=load_result.get("error", "加载工作流失败"),
+                    error_code="LOAD_WORKFLOW_FAILED"
+                )
+
+            workflow = load_result.get("workflow", {})
+
+            # 提取参数
+            params_result = comfyui_module.extract_parameters(workflow)
+
+            return response_formatter.success(
+                data=params_result,
+                message="获取工作流参数成功"
+            )
+        except Exception as e:
+            return response_formatter.wrap_exception(e, "获取工作流参数失败")
+
     # 注册路由器到应用
     app.include_router(api_router)

@@ -831,6 +831,134 @@ class ComfyUIModule:
                 "error": str(e)
             }
 
+    def upload_workflow_template(
+        self,
+        workflow_name: str,
+        workflow_json: str,
+        overwrite: bool = False
+    ) -> Dict[str, Any]:
+        """
+        上传工作流模板到 workflows 目录
+
+        Args:
+            workflow_name: 工作流文件名（如 "my_workflow.json"）
+            workflow_json: 工作流 JSON 字符串
+            overwrite: 是否覆盖已存在的文件
+
+        Returns:
+            Dict[str, Any]: 上传结果
+        """
+        try:
+            # 验证文件名
+            if not workflow_name.endswith('.json'):
+                return {
+                    "success": False,
+                    "error": "工作流文件名必须以 .json 结尾"
+                }
+
+            # 确保 workflows 目录存在
+            WORKFLOWS_DIR.mkdir(parents=True, exist_ok=True)
+
+            workflow_path = WORKFLOWS_DIR / workflow_name
+
+            # 检查文件是否已存在
+            if workflow_path.exists() and not overwrite:
+                return {
+                    "success": False,
+                    "error": f"工作流文件已存在: {workflow_name}，请设置 overwrite=True 覆盖"
+                }
+
+            # 验证 JSON 格式
+            try:
+                workflow = json.loads(workflow_json)
+            except json.JSONDecodeError as e:
+                return {
+                    "success": False,
+                    "error": f"工作流 JSON 格式无效: {str(e)}"
+                }
+
+            # 保存文件
+            with open(workflow_path, 'w', encoding='utf-8') as f:
+                json.dump(workflow, f, ensure_ascii=False, indent=2)
+
+            Logger.info(f"工作流模板上传成功: {workflow_name}")
+
+            return {
+                "success": True,
+                "workflow_name": workflow_name,
+                "workflow_path": str(workflow_path),
+                "message": f"工作流模板上传成功: {workflow_name}"
+            }
+        except Exception as e:
+            Logger.error(f"上传工作流模板失败: {str(e)}")
+            return {
+                "success": False,
+                "error": str(e)
+            }
+
+    def extract_parameters(
+        self,
+        workflow: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """
+        提取工作流中的参数占位符
+
+        Args:
+            workflow: 工作流字典
+
+        Returns:
+            Dict[str, Any]: 包含参数占位符和示例值的字典
+        """
+        import re
+
+        params_found = set()
+
+        def find_params(obj):
+            if isinstance(obj, str):
+                # 匹配 {{param}} 格式的占位符
+                pattern = r'\{\{(\w+(?:\.\w+)*)\}\}'
+                matches = re.findall(pattern, obj)
+                params_found.update(matches)
+            elif isinstance(obj, dict):
+                for v in obj.values():
+                    find_params(v)
+            elif isinstance(obj, list):
+                for item in obj:
+                    find_params(item)
+
+        find_params(workflow)
+
+        # 生成参数示例
+        params_example = {}
+        for param in sorted(params_found):
+            # 根据参数名推测类型和默认值
+            param_lower = param.lower()
+            
+            if 'seed' in param_lower:
+                params_example[param] = 123456
+            elif 'width' in param_lower or 'size' in param_lower:
+                params_example[param] = 512
+            elif 'height' in param_lower:
+                params_example[param] = 512
+            elif 'steps' in param_lower:
+                params_example[param] = 20
+            elif 'cfg' in param_lower:
+                params_example[param] = 7.0
+            elif 'prompt' in param_lower:
+                params_example[param] = "your prompt here"
+            elif 'model' in param_lower:
+                params_example[param] = "model_name.safetensors"
+            elif 'prefix' in param_lower or 'filename' in param_lower:
+                params_example[param] = "output_prefix"
+            else:
+                params_example[param] = ""
+
+        return {
+            "parameters": sorted(list(params_found)),
+            "example": params_example,
+            "count": len(params_found)
+        }
+
     def _replace_parameters(
         self,
         workflow: Dict[str, Any],
