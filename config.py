@@ -96,6 +96,12 @@ class Config:
     ZHIPU_TEMPERATURE = 0.3  # 温度参数，越低越确定
     ZHIPU_MAX_TOKENS = 8000  # 最大 token 数
 
+    # ==================== 文件持久化配置 ====================
+    # HuggingFace Token - 从 https://huggingface.co/settings/tokens 获取
+    HUGGINGFACE_TOKEN = os.environ.get("HUGGINGFACE_TOKEN", "")
+    # ModelScope Token - 从 https://modelscope.cn/my/myaccesstoken 获取
+    MODELSCOPE_TOKEN = os.environ.get("MODELSCOPE_TOKEN", "")
+
     @classmethod
     def init_directories(cls):
         """初始化必要的目录"""

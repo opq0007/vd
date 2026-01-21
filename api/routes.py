@@ -22,6 +22,7 @@ from modules.video_editor_module import video_editor_module
 from modules.image_processing_module import image_processing_module
 from utils.logger import Logger
 from utils.media_processor import MediaProcessor
+import os
 
 
 # 定义请求模型
@@ -2127,6 +2128,247 @@ def register_routes(app) -> None:
             import traceback
             Logger.error(traceback.format_exc())
             return response_formatter.wrap_exception(e, "模板执行失败")
+
+    # ==================== 文件持久化 ====================
+    @api_router.get("/persistence/platforms")
+    async def get_available_platforms(payload: Dict[str, Any] = Depends(verify_token)) -> Dict[str, Any]:
+        """
+        获取可用的持久化平台列表
+
+        Args:
+            payload: 认证载荷
+
+        Returns:
+            Dict[str, Any]: 可用平台列表
+        """
+        try:
+            from modules.file_persistence import get_persistence_manager
+            manager = get_persistence_manager()
+
+            if not manager:
+                return response_formatter.error(
+                    message="文件持久化管理器未初始化",
+                    error_code="PERSISTENCE_MANAGER_NOT_INITIALIZED"
+                )
+
+            platforms = manager.get_available_platforms()
+
+            return response_formatter.success(
+                data={
+                    "platforms": platforms,
+                    "count": len(platforms)
+                },
+                message="获取可用平台成功"
+            )
+        except Exception as e:
+            return response_formatter.wrap_exception(e, "获取可用平台失败")
+
+    @api_router.post("/persistence/upload_file")
+    async def upload_file_to_platform(
+        file_path: str = Form(...),
+        platform: str = Form("modelscope"),
+        repo_id: str = Form(...),
+        path_in_repo: str = Form(None),
+        repo_type: str = Form("dataset"),
+        commit_message: str = Form("Upload file"),
+        payload: Dict[str, Any] = Depends(verify_token)
+    ) -> Dict[str, Any]:
+        """
+        上传单个文件到指定平台
+
+        Args:
+            file_path: 本地文件路径
+            platform: 平台名称 (huggingface/modelscope)
+            repo_id: 仓库 ID
+            path_in_repo: 仓库中的文件路径（可选）
+            repo_type: 仓库类型
+            commit_message: 提交消息
+            payload: 认证载荷
+
+        Returns:
+            Dict[str, Any]: 上传结果
+        """
+        try:
+            from modules.file_persistence import get_persistence_manager
+            manager = get_persistence_manager()
+
+            if not manager:
+                return response_formatter.error(
+                    message="文件持久化管理器未初始化",
+                    error_code="PERSISTENCE_MANAGER_NOT_INITIALIZED"
+                )
+
+            result = manager.upload_single_file(
+                file_path=file_path,
+                platform=platform,
+                repo_id=repo_id,
+                path_in_repo=path_in_repo,
+                repo_type=repo_type,
+                commit_message=commit_message
+            )
+
+            if result.success:
+                return response_formatter.success(
+                    data={
+                        "platform": result.platform,
+                        "repo_id": result.repo_id,
+                        "file_path": result.file_path,
+                        "repo_url": result.repo_url,
+                        "download_url": result.download_url,
+                        "message": result.message
+                    },
+                    message="文件上传成功"
+                )
+            else:
+                return response_formatter.error(
+                    message=result.error or "文件上传失败",
+                    error_code="FILE_UPLOAD_FAILED"
+                )
+        except Exception as e:
+            return response_formatter.wrap_exception(e, "文件上传失败")
+
+    @api_router.post("/persistence/upload_folder")
+    async def upload_folder_to_platform(
+        folder_path: str = Form(...),
+        platform: str = Form("modelscope"),
+        repo_id: str = Form(...),
+        path_in_repo: str = Form(""),
+        repo_type: str = Form("dataset"),
+        commit_message: str = Form("Upload folder"),
+        payload: Dict[str, Any] = Depends(verify_token)
+    ) -> Dict[str, Any]:
+        """
+        上传文件夹到指定平台
+
+        Args:
+            folder_path: 本地文件夹路径
+            platform: 平台名称
+            repo_id: 仓库 ID
+            path_in_repo: 仓库中的文件夹路径
+            repo_type: 仓库类型
+            commit_message: 提交消息
+            payload: 认证载荷
+
+        Returns:
+            Dict[str, Any]: 上传结果
+        """
+        try:
+            from modules.file_persistence import get_persistence_manager
+            manager = get_persistence_manager()
+
+            if not manager:
+                return response_formatter.error(
+                    message="文件持久化管理器未初始化",
+                    error_code="PERSISTENCE_MANAGER_NOT_INITIALIZED"
+                )
+
+            result = manager.upload_folder(
+                folder_path=folder_path,
+                platform=platform,
+                repo_id=repo_id,
+                path_in_repo=path_in_repo,
+                repo_type=repo_type,
+                commit_message=commit_message
+            )
+
+            if result.success:
+                return response_formatter.success(
+                    data={
+                        "platform": result.platform,
+                        "repo_id": result.repo_id,
+                        "file_path": result.file_path,
+                        "repo_url": result.repo_url,
+                        "download_url": result.download_url,
+                        "message": result.message
+                    },
+                    message="文件夹上传成功"
+                )
+            else:
+                return response_formatter.error(
+                    message=result.error or "文件夹上传失败",
+                    error_code="FOLDER_UPLOAD_FAILED"
+                )
+        except Exception as e:
+            return response_formatter.wrap_exception(e, "文件夹上传失败")
+
+    @api_router.post("/persistence/batch_upload")
+    async def batch_upload_files_to_platform(
+        request: Dict[str, Any],
+        payload: Dict[str, Any] = Depends(verify_token)
+    ) -> Dict[str, Any]:
+        """
+        批量上传多个文件到指定平台
+
+        Args:
+            request: 请求体，包含：
+                - file_paths: 文件路径列表
+                - platform: 平台名称
+                - repo_id: 仓库 ID
+                - repo_type: 仓库类型
+                - commit_message: 提交消息
+            payload: 认证载荷
+
+        Returns:
+            Dict[str, Any]: 批量上传结果
+        """
+        try:
+            from modules.file_persistence import get_persistence_manager
+            manager = get_persistence_manager()
+
+            if not manager:
+                return response_formatter.error(
+                    message="文件持久化管理器未初始化",
+                    error_code="PERSISTENCE_MANAGER_NOT_INITIALIZED"
+                )
+
+            file_paths = request.get("file_paths", [])
+            platform = request.get("platform", "modelscope")
+            repo_id = request.get("repo_id")
+            repo_type = request.get("repo_type", "dataset")
+            commit_message = request.get("commit_message", "Batch upload files")
+
+            if not file_paths:
+                return response_formatter.error(
+                    message="文件路径列表不能为空",
+                    error_code="EMPTY_FILE_LIST"
+                )
+
+            results = manager.batch_upload_files(
+                file_paths=file_paths,
+                platform=platform,
+                repo_id=repo_id,
+                repo_type=repo_type,
+                commit_message=commit_message
+            )
+
+            # 统计结果
+            success_count = sum(1 for r in results if r.success)
+            failed_count = len(results) - success_count
+
+            return response_formatter.success(
+                data={
+                    "total": len(results),
+                    "success": success_count,
+                    "failed": failed_count,
+                    "results": [
+                        {
+                            "file_path": os.path.basename(fp),
+                            "success": r.success,
+                            "platform": r.platform,
+                            "repo_id": r.repo_id,
+                            "file_path_in_repo": r.file_path,
+                            "repo_url": r.repo_url,
+                            "download_url": r.download_url,
+                            "message": r.message,
+                            "error": r.error
+                        }
+                        for fp, r in zip(file_paths, results)
+                    ]
+                },
+                message=f"批量上传完成：成功 {success_count} 个，失败 {failed_count} 个"
+            )
+        except Exception as e:
+            return response_formatter.wrap_exception(e, "批量上传失败")
 
     # 注册路由器到应用
     app.include_router(api_router)

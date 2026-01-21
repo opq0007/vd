@@ -49,7 +49,8 @@ from ui import (
     create_video_merge_interface,
     create_image_processing_interface,
     create_batch_processing_interface,
-    get_template_manager_ui
+    get_template_manager_ui,
+    create_file_persistence_interface
 )
 
 # 初始化日志
@@ -186,6 +187,10 @@ def create_gradio_interface():
             with gr.TabItem("📁 模板管理"):
                 get_template_manager_ui()
 
+            # 文件持久化标签页
+            with gr.TabItem("☁️ 文件持久化"):
+                create_file_persistence_interface()
+
             # API文档标签页
             with gr.TabItem("API文档"):
                 gr.Markdown("## API 文档")
@@ -234,10 +239,27 @@ def create_gradio_interface():
 
 #### 视频合并
 - `POST /api/video_merge/merge` - 合并多个视频文件
+
+#### 文件持久化
+- `GET /api/persistence/platforms` - 获取可用的持久化平台列表
+- `POST /api/persistence/upload_file` - 上传单个文件到指定平台
+- `POST /api/persistence/upload_folder` - 上传文件夹到指定平台
+- `POST /api/persistence/batch_upload` - 批量上传多个文件到指定平台
                 """)
 
     return demo
 
+
+# 初始化文件持久化管理器（在 Gradio 界面创建之前）
+try:
+    from modules.file_persistence import init_persistence_manager
+    init_persistence_manager(
+        huggingface_token=config.HUGGINGFACE_TOKEN,
+        modelscope_token=config.MODELSCOPE_TOKEN
+    )
+    Logger.info("文件持久化管理器初始化成功")
+except Exception as e:
+    Logger.warning(f"文件持久化管理器初始化失败: {str(e)}")
 
 # 根据配置决定是否启用 Gradio UI
 if config.ENABLE_GRADIO_UI:
@@ -310,6 +332,7 @@ async def root():
                         <li>🎬 视频转场 - 多种专业视频转场效果</li>
                         <li>🔗 视频合并 - 合并多个视频文件为一个视频</li>
                         <li>🔊 语音识别 - 基于 faster-whisper 的高性能语音识别</li>
+                        <li>☁️ 文件持久化 - 将文件上传到 HuggingFace/ModelScope 等云平台</li>
                     </ul>
                     <h2>技术架构</h2>
                     <p>本服务采用模块化架构设计，遵循高内聚、低耦合原则：</p>
@@ -388,6 +411,7 @@ async def root():
                         <li>🔊 语音识别 - 基于 faster-whisper 的高性能语音识别</li>
                         <li>📁 模板管理 - 管理综合处理模板文件</li>
                         <li>🚀 综合处理 - 基于模板的自动化视频处理</li>
+                        <li>☁️ 文件持久化 - 将文件上传到 HuggingFace/ModelScope 等云平台</li>
                     </ul>
                     <h2>认证方式</h2>
                     <p>所有 API 端点都需要通过 Bearer Token 认证。</p>
@@ -426,6 +450,7 @@ async def startup_event():
     Logger.info(f"Gradio UI: {'已启用' if config.ENABLE_GRADIO_UI else '已禁用 (API 模式)'}")
     if config.ENABLE_GRADIO_UI:
         Logger.info(f"Web 界面: {config.GRADIO_URL}")
+
     Logger.info("=" * 50)
 
 

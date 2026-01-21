@@ -1,7 +1,7 @@
 """
 功能模块
 
-包含 Whisper 语音识别、语音合成、字幕生成、视频转场、图像处理等功能模块。
+包含 Whisper 语音识别、语音合成、字幕生成、视频转场、图像处理、文件持久化等功能模块。
 """
 
 from .whisper_service import WhisperService, whisper_service
@@ -15,6 +15,16 @@ from .template_manager import TemplateManager, template_manager
 from .parameter_resolver import ParameterResolver, parameter_resolver
 from .task_orchestrator import TaskOrchestrator, task_orchestrator
 from .task_handlers import TaskHandlers, task_handlers
+from .file_persistence import (
+    FilePersistenceManager,
+    BasePlatformUploader,
+    HuggingFaceUploader,
+    ModelScopeUploader,
+    UploadResult,
+    PlatformType,
+    get_persistence_manager,
+    init_persistence_manager
+)
 
 __all__ = [
     'WhisperService',
@@ -28,6 +38,12 @@ __all__ = [
     'ParameterResolver',
     'TaskOrchestrator',
     'TaskHandlers',
+    'FilePersistenceManager',
+    'BasePlatformUploader',
+    'HuggingFaceUploader',
+    'ModelScopeUploader',
+    'UploadResult',
+    'PlatformType',
     'whisper_service',
     'tts_onnx_module',
     'subtitle_module',
@@ -38,5 +54,7 @@ __all__ = [
     'template_manager',
     'parameter_resolver',
     'task_orchestrator',
-    'task_handlers'
+    'task_handlers',
+    'get_persistence_manager',
+    'init_persistence_manager'
 ]
