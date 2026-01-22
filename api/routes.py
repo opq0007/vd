@@ -2819,5 +2819,273 @@ def register_routes(app) -> None:
         except Exception as e:
             return response_formatter.wrap_exception(e, "获取工作流参数失败")
 
+    # ==================== 通用HTTP集成 ====================
+    @api_router.post("/http/send")
+    async def send_http_request(
+        method: str = Form(..., description="HTTP方法"),
+        url: str = Form(..., description="请求URL"),
+        headers: str = Form(None, description="请求头（JSON字符串）"),
+        params: str = Form(None, description="查询参数（JSON字符串）"),
+        body_data: str = Form(None, description="请求体（原始字符串）"),
+        body_json: str = Form(None, description="请求体（JSON字符串）"),
+        form_data: str = Form(None, description="请求体（表单数据JSON字符串）"),
+        auth_type: str = Form("none", description="认证类型"),
+        auth_token: str = Form(None, description="Bearer Token"),
+        auth_username: str = Form(None, description="Basic认证用户名"),
+        auth_password: str = Form(None, description="Basic认证密码"),
+        auth_key_name: str = Form(None, description="API Key名称"),
+        auth_key_value: str = Form(None, description="API Key值"),
+        auth_custom_header: str = Form(None, description="自定义认证头"),
+        timeout: float = Form(30.0, description="超时时间（秒）"),
+        payload: Dict[str, Any] = Depends(verify_token)
+    ) -> Dict[str, Any]:
+        """
+        发送HTTP请求
+
+        Args:
+            method: HTTP方法 (GET, POST, PUT, DELETE, PATCH)
+            url: 请求URL
+            headers: 请求头（JSON字符串）
+            params: 查询参数（JSON字符串）
+            body_data: 请求体（原始字符串）
+            body_json: 请求体（JSON字符串）
+            form_data: 请求体（表单数据JSON字符串）
+            auth_type: 认证类型 (none, bearer, basic, api_key, custom)
+            auth_token: Bearer Token
+            auth_username: Basic认证用户名
+            auth_password: Basic认证密码
+            auth_key_name: API Key名称
+            auth_key_value: API Key值
+            auth_custom_header: 自定义认证头
+            timeout: 超时时间（秒）
+            payload: 认证载荷
+
+        Returns:
+            Dict[str, Any]: 请求结果
+        """
+        try:
+            from modules.http_integration_module import http_integration_module
+            import json
+
+            # 解析请求头
+            headers_dict = None
+            if headers:
+                try:
+                    headers_dict = json.loads(headers)
+                except json.JSONDecodeError:
+                    return response_formatter.error(
+                        message="请求头JSON格式无效",
+                        error_code="INVALID_HEADERS_JSON"
+                    )
+
+            # 解析查询参数
+            params_dict = None
+            if params:
+                try:
+                    params_dict = json.loads(params)
+                except json.JSONDecodeError:
+                    return response_formatter.error(
+                        message="查询参数JSON格式无效",
+                        error_code="INVALID_PARAMS_JSON"
+                    )
+
+            # 解析请求体
+            body_json_dict = None
+            if body_json:
+                try:
+                    body_json_dict = json.loads(body_json)
+                except json.JSONDecodeError:
+                    return response_formatter.error(
+                        message="请求体JSON格式无效",
+                        error_code="INVALID_BODY_JSON"
+                    )
+
+            form_data_dict = None
+            if form_data:
+                try:
+                    form_data_dict = json.loads(form_data)
+                except json.JSONDecodeError:
+                    return response_formatter.error(
+                        message="表单数据JSON格式无效",
+                        error_code="INVALID_FORM_DATA_JSON"
+                    )
+
+            # 准备认证配置
+            auth_config = None
+            if auth_type and auth_type != "none":
+                auth_config = {"type": auth_type}
+                if auth_type == "bearer":
+                    auth_config["token"] = auth_token
+                elif auth_type == "basic":
+                    auth_config["username"] = auth_username
+                    auth_config["password"] = auth_password
+                elif auth_type == "api_key":
+                    auth_config["key_name"] = auth_key_name or "X-API-Key"
+                    auth_config["key_value"] = auth_key_value
+                elif auth_type == "custom":
+                    auth_config["header"] = auth_custom_header
+
+            # 发送请求
+            result = await http_integration_module.send_request(
+                method=method,
+                url=url,
+                headers=headers_dict,
+                params=params_dict,
+                body_data=body_data,
+                body_json=body_json_dict,
+                form_data=form_data_dict,
+                auth_config=auth_config,
+                timeout=timeout
+            )
+
+            if result.get("success", False):
+                return response_formatter.success(
+                    data=result,
+                    message="HTTP请求成功"
+                )
+            else:
+                return response_formatter.error(
+                    message=result.get("error", "HTTP请求失败"),
+                    error_code="HTTP_REQUEST_FAILED"
+                )
+
+        except Exception as e:
+            return response_formatter.wrap_exception(e, "发送HTTP请求失败")
+
+    @api_router.post("/http/send_and_save")
+    async def send_http_request_and_save(
+        method: str = Form(..., description="HTTP方法"),
+        url: str = Form(..., description="请求URL"),
+        headers: str = Form(None, description="请求头（JSON字符串）"),
+        params: str = Form(None, description="查询参数（JSON字符串）"),
+        body_data: str = Form(None, description="请求体（原始字符串）"),
+        body_json: str = Form(None, description="请求体（JSON字符串）"),
+        form_data: str = Form(None, description="请求体（表单数据JSON字符串）"),
+        auth_type: str = Form("none", description="认证类型"),
+        auth_token: str = Form(None, description="Bearer Token"),
+        auth_username: str = Form(None, description="Basic认证用户名"),
+        auth_password: str = Form(None, description="Basic认证密码"),
+        auth_key_name: str = Form(None, description="API Key名称"),
+        auth_key_value: str = Form(None, description="API Key值"),
+        auth_custom_header: str = Form(None, description="自定义认证头"),
+        timeout: float = Form(30.0, description="超时时间（秒）"),
+        save_filename: str = Form(None, description="保存文件名（不含扩展名）"),
+        payload: Dict[str, Any] = Depends(verify_token)
+    ) -> Dict[str, Any]:
+        """
+        发送HTTP请求并保存二进制响应到本地
+
+        Args:
+            method: HTTP方法 (GET, POST, PUT, DELETE, PATCH)
+            url: 请求URL
+            headers: 请求头（JSON字符串）
+            params: 查询参数（JSON字符串）
+            body_data: 请求体（原始字符串）
+            body_json: 请求体（JSON字符串）
+            form_data: 请求体（表单数据JSON字符串）
+            auth_type: 认证类型 (none, bearer, basic, api_key, custom)
+            auth_token: Bearer Token
+            auth_username: Basic认证用户名
+            auth_password: Basic认证密码
+            auth_key_name: API Key名称
+            auth_key_value: API Key值
+            auth_custom_header: 自定义认证头
+            timeout: 超时时间（秒）
+            save_filename: 保存文件名（不含扩展名）
+            payload: 认证载荷
+
+        Returns:
+            Dict[str, Any]: 请求结果
+        """
+        try:
+            from modules.http_integration_module import http_integration_module
+            import json
+
+            # 解析请求头
+            headers_dict = None
+            if headers:
+                try:
+                    headers_dict = json.loads(headers)
+                except json.JSONDecodeError:
+                    return response_formatter.error(
+                        message="请求头JSON格式无效",
+                        error_code="INVALID_HEADERS_JSON"
+                    )
+
+            # 解析查询参数
+            params_dict = None
+            if params:
+                try:
+                    params_dict = json.loads(params)
+                except json.JSONDecodeError:
+                    return response_formatter.error(
+                        message="查询参数JSON格式无效",
+                        error_code="INVALID_PARAMS_JSON"
+                    )
+
+            # 解析请求体
+            body_json_dict = None
+            if body_json:
+                try:
+                    body_json_dict = json.loads(body_json)
+                except json.JSONDecodeError:
+                    return response_formatter.error(
+                        message="请求体JSON格式无效",
+                        error_code="INVALID_BODY_JSON"
+                    )
+
+            form_data_dict = None
+            if form_data:
+                try:
+                    form_data_dict = json.loads(form_data)
+                except json.JSONDecodeError:
+                    return response_formatter.error(
+                        message="表单数据JSON格式无效",
+                        error_code="INVALID_FORM_DATA_JSON"
+                    )
+
+            # 准备认证配置
+            auth_config = None
+            if auth_type and auth_type != "none":
+                auth_config = {"type": auth_type}
+                if auth_type == "bearer":
+                    auth_config["token"] = auth_token
+                elif auth_type == "basic":
+                    auth_config["username"] = auth_username
+                    auth_config["password"] = auth_password
+                elif auth_type == "api_key":
+                    auth_config["key_name"] = auth_key_name or "X-API-Key"
+                    auth_config["key_value"] = auth_key_value
+                elif auth_type == "custom":
+                    auth_config["header"] = auth_custom_header
+
+            # 发送请求并保存
+            result = await http_integration_module.send_request_and_save(
+                method=method,
+                url=url,
+                headers=headers_dict,
+                params=params_dict,
+                body_data=body_data,
+                body_json=body_json_dict,
+                form_data=form_data_dict,
+                auth_config=auth_config,
+                timeout=timeout,
+                save_filename=save_filename
+            )
+
+            if result.get("success", False):
+                return response_formatter.success(
+                    data=result,
+                    message="HTTP请求成功，文件已保存"
+                )
+            else:
+                return response_formatter.error(
+                    message=result.get("error", "HTTP请求失败"),
+                    error_code="HTTP_REQUEST_FAILED"
+                )
+
+        except Exception as e:
+            return response_formatter.wrap_exception(e, "发送HTTP请求失败")
+
     # 注册路由器到应用
     app.include_router(api_router)
