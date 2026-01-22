@@ -103,6 +103,7 @@ class TaskHandlers:
         self._register_video_editor_handler()
         self._register_transition_handler()
         self._register_video_merge_handler()
+        self._register_http_integration_handler()
         self._register_aigc_handlers()
     
     def _register_tts_handler(self):
@@ -847,7 +848,118 @@ class TaskHandlers:
         
         self._handlers["video_merge"] = video_merge_handler
         Logger.info("注册视频合并任务处理器")
-    
+
+    def _register_http_integration_handler(self):
+        """注册HTTP集成任务处理器"""
+        async def http_integration_handler(params: Dict[str, Any]) -> Dict[str, Any]:
+            """HTTP集成任务处理器"""
+            try:
+                from modules.http_integration_module import http_integration_module
+
+                # 获取输入参数
+                method = params.get("method", "GET").upper()
+                url = params.get("url", "")
+                headers = params.get("headers", {})
+                query_params = params.get("query_params", {})
+                body_data = params.get("body_data", None)
+                body_json = params.get("body_json", None)
+                form_data = params.get("form_data", None)
+                auth_config = params.get("auth_config", None)
+                timeout = params.get("timeout", None)
+                save_filename = params.get("save_filename", None)
+                files = params.get("files", None)
+                save_response = params.get("save_response", False)
+                task_id = params.get("task_id", "http_integration")
+
+                if not url:
+                    raise ValueError("缺少请求URL")
+
+                # 创建输出目录（使用共享目录或创建新目录）
+                job_dir = params.get("job_dir")
+                if job_dir:
+                    output_dir = Path(job_dir)
+                    output_dir.mkdir(parents=True, exist_ok=True)
+                else:
+                    output_dir = FileUtils.create_job_dir()
+
+                # 根据是否需要保存响应选择调用方法
+                if save_response:
+                    # 调用保存响应的方法
+                    Logger.info(f"HTTP请求（保存响应）: {method} {url}")
+                    result = await http_integration_module.send_request_and_save(
+                        method=method,
+                        url=url,
+                        headers=headers,
+                        params=query_params,
+                        body_data=body_data,
+                        body_json=body_json,
+                        form_data=form_data,
+                        auth_config=auth_config,
+                        timeout=timeout,
+                        save_filename=save_filename or f"{task_id}_response",
+                        output_dir=output_dir,
+                        files=files
+                    )
+                else:
+                    # 调用不保存响应的方法
+                    Logger.info(f"HTTP请求（不保存响应）: {method} {url}")
+                    result = await http_integration_module.send_request(
+                        method=method,
+                        url=url,
+                        headers=headers,
+                        params=query_params,
+                        body_data=body_data,
+                        body_json=body_json,
+                        form_data=form_data,
+                        auth_config=auth_config,
+                        timeout=timeout,
+                        files=files
+                    )
+
+                # 检查处理结果
+                if not result.get("success", False):
+                    error_msg = result.get("error", "HTTP请求失败")
+                    Logger.error(f"HTTP集成任务失败: {error_msg}")
+                    return {
+                        "success": False,
+                        "error": error_msg
+                    }
+
+                # 准备返回结果
+                output_result = {
+                    "success": True,
+                    "status_code": result.get("status_code"),
+                    "status_text": result.get("status_text"),
+                    "response_headers": result.get("response_headers"),
+                    "response_body": result.get("response_body"),
+                    "is_binary": result.get("is_binary", False)
+                }
+
+                # 如果保存了文件，添加文件路径
+                if "saved_file" in result and result["saved_file"]:
+                    output_result["output"] = result["saved_file"]
+                    output_result["saved_file"] = result["saved_file"]
+                    output_result["file_size"] = result.get("file_size", 0)
+                    output_result["content_type"] = result.get("content_type", "")
+                    output_result["output_files"] = [result["saved_file"]]
+                else:
+                    output_result["output"] = result.get("response_body", "")
+                    output_result["output_files"] = []
+
+                Logger.info(f"HTTP集成任务完成: 状态码={result.get('status_code')}, 保存文件={bool(result.get('saved_file'))}")
+
+                return output_result
+
+            except Exception as e:
+                Logger.error(f"HTTP集成任务失败: {e}")
+                return {
+                    "success": False,
+                    "error": str(e)
+                }
+
+        self._handlers["http_integration"] = http_integration_handler
+        Logger.info("注册HTTP集成任务处理器")
+
     def get_handler(self, task_type: str):
         """
         获取任务处理器
@@ -874,6 +986,7 @@ class TaskHandlers:
             "video_editor": "视频编辑",
             "video_transition": "视频转场",
             "video_merge": "视频合并",
+            "http_integration": "HTTP集成",
             "llm_generate_script": "LLM生成视频文案",
             "comfyui_generate_media": "ComfyUI生成AI配图/视频"
         }
