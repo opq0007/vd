@@ -351,7 +351,7 @@ class SubtitleModule:
                         ]
 
                         # 调用 LLM 纠错
-                        corrected_segments = llm_corrector.correct_subtitle_segments(
+                        corrected_segments = await llm_corrector.correct_subtitle_segments(
                             subtitle_segments,
                             reference_text
                         )
