@@ -1,7 +1,7 @@
 """
 功能模块
 
-包含 Whisper 语音识别、语音合成、字幕生成、视频转场、图像处理、文件持久化、ComfyUI 集成等功能模块。
+包含 Whisper 语音识别、语音合成、字幕生成、视频转场、图像处理、文件持久化、ComfyUI 集成、通用HTTP集成等功能模块。
 """
 
 from .whisper_service import WhisperService, whisper_service
@@ -26,6 +26,7 @@ from .file_persistence import (
     init_persistence_manager
 )
 from .comfyui_module import ComfyUIClient, ComfyUIModule, ComfyUIResult, comfyui_module
+from .http_integration_module import HTTPIntegrationModule, http_integration_module
 
 __all__ = [
     'WhisperService',
@@ -48,6 +49,7 @@ __all__ = [
     'ComfyUIClient',
     'ComfyUIModule',
     'ComfyUIResult',
+    'HTTPIntegrationModule',
     'whisper_service',
     'tts_onnx_module',
     'subtitle_module',
@@ -61,5 +63,6 @@ __all__ = [
     'task_handlers',
     'get_persistence_manager',
     'init_persistence_manager',
-    'comfyui_module'
+    'comfyui_module',
+    'http_integration_module'
 ]
