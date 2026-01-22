@@ -60,9 +60,13 @@ class TemplateManager:
                         template["template_file"] = str(template_file)
                         template["template_dir"] = str(template_file.parent)
                     
+                    # 保留 AIGC 模板标志
+                    if "is_aigc_template" not in template:
+                        template["is_aigc_template"] = False
+                    
                     template_name = template.get("name", template_file.stem)
                     self._templates[template_name] = template
-                    Logger.info(f"加载模板: {template_name} ({template_file.name})")
+                    Logger.info(f"加载模板: {template_name} ({template_file.name}), AIGC: {template.get('is_aigc_template', False)}")
                 else:
                     Logger.warning(f"模板格式无效: {template_file.name}")
             except Exception as e:
