@@ -34,7 +34,7 @@ class LLMCorrector:
         if not self.api_key:
             Logger.warning("智谱 AI API Key 未配置，字幕纠错功能将不可用")
 
-    def _call_llm(self, messages: List[Dict[str, str]]) -> Optional[str]:
+    async def _call_llm(self, messages: List[Dict[str, str]]) -> Optional[str]:
         """
         调用智谱 AI API
 
@@ -62,28 +62,63 @@ class LLMCorrector:
 
         try:
             Logger.info(f"调用智谱 AI API: {self.model}")
-            response = requests.post(
-                self.api_url,
-                headers=headers,
-                json=payload,
-                timeout=60
-            )
-            response.raise_for_status()
+            import aiohttp
+            async with aiohttp.ClientSession() as session:
+                async with session.post(
+                    self.api_url,
+                    headers=headers,
+                    json=payload,
+                    timeout=600
+                ) as response:
+                    response.raise_for_status()
+                    result = await response.json()
+                    content = result.get("choices", [{}])[0].get("message", {}).get("content", "")
 
-            result = response.json()
-            content = result.get("choices", [{}])[0].get("message", {}).get("content", "")
+                    Logger.info(f"智谱 AI API 调用成功，返回 {len(content)} 字符")
+                    return content
 
-            Logger.info(f"智谱 AI API 调用成功，返回 {len(content)} 字符")
-            return content
-
-        except requests.exceptions.RequestException as e:
+        except Exception as e:
             Logger.error(f"智谱 AI API 调用失败: {e}")
             return None
-        except (KeyError, IndexError) as e:
-            Logger.error(f"智谱 AI API 响应解析失败: {e}")
-            return None
 
-    def correct_subtitle_text(
+    async def call_llm(
+        self,
+        prompt: str,
+        model: Optional[str] = None,
+        api_key: Optional[str] = None
+    ) -> Optional[str]:
+        """
+        调用 LLM 生成响应
+
+        Args:
+            prompt: 提示词
+            model: 模型名称（可选，使用配置中的默认值）
+            api_key: API Key（可选，使用配置中的默认值）
+
+        Returns:
+            Optional[str]: LLM 返回的文本内容
+        """
+        # 临时覆盖配置
+        original_api_key = self.api_key
+        original_model = self.model
+
+        if api_key:
+            self.api_key = api_key
+        if model:
+            self.model = model
+
+        try:
+            messages = [
+                {"role": "user", "content": prompt}
+            ]
+
+            return await self._call_llm(messages)
+        finally:
+            # 恢复原始配置
+            self.api_key = original_api_key
+            self.model = original_model
+
+    async def correct_subtitle_text(
         self,
         subtitle_text: str,
         reference_text: str
@@ -144,7 +179,7 @@ class LLMCorrector:
         ]
 
         # 调用 LLM
-        corrected_text = self._call_llm(messages)
+        corrected_text = await self._call_llm(messages)
 
         if corrected_text:
             Logger.info(f"纠正后字幕文本（{len(corrected_text)} 字符）：")
@@ -173,7 +208,7 @@ class LLMCorrector:
             Logger.info("=" * 80)
             return subtitle_text
 
-    def correct_subtitle_segments(
+    async def correct_subtitle_segments(
         self,
         segments: List[SubtitleSegment],
         reference_text: str
@@ -203,7 +238,7 @@ class LLMCorrector:
         subtitle_text = "\n".join([seg.text for seg in segments])
 
         # 调用纠错
-        corrected_text = self.correct_subtitle_text(subtitle_text, reference_text)
+        corrected_text = await self.correct_subtitle_text(subtitle_text, reference_text)
 
         if corrected_text is None or corrected_text == subtitle_text:
             # 纠错失败或无需纠错，返回原始片段

@@ -103,6 +103,7 @@ class TaskHandlers:
         self._register_video_editor_handler()
         self._register_transition_handler()
         self._register_video_merge_handler()
+        self._register_aigc_handlers()
     
     def _register_tts_handler(self):
         """注册TTS任务处理器"""
@@ -858,11 +859,11 @@ class TaskHandlers:
             任务处理器函数
         """
         return self._handlers.get(task_type)
-    
+
     def get_available_handlers(self) -> Dict[str, str]:
         """
         获取所有可用的任务处理器
-        
+
         Returns:
             任务处理器字典 {task_type: description}
         """
@@ -872,8 +873,240 @@ class TaskHandlers:
             "image_process": "图像处理",
             "video_editor": "视频编辑",
             "video_transition": "视频转场",
-            "video_merge": "视频合并"
+            "video_merge": "视频合并",
+            "llm_generate_script": "LLM生成视频文案",
+            "comfyui_generate_media": "ComfyUI生成AI配图/视频"
         }
+
+    def _register_aigc_handlers(self):
+        """注册AIGC任务处理器"""
+        self._register_llm_generate_script_handler()
+        self._register_comfyui_generate_media_handler()
+
+    def _register_llm_generate_script_handler(self):
+        """注册LLM生成视频文案任务处理器"""
+        async def llm_generate_script_handler(params: Dict[str, Any]) -> Dict[str, Any]:
+            """LLM生成视频文案任务处理器"""
+            try:
+                from utils.llm_corrector import LLMCorrector
+                from config import config
+                import json
+                import re
+
+                llm_corrector = LLMCorrector()
+
+                topic = params.get("topic", "")
+                duration = params.get("duration", 60)
+                llm_model = params.get("llm_model", config.ZHIPU_MODEL)
+                llm_api_key = params.get("llm_api_key", config.ZHIPU_API_KEY)
+
+                if not llm_api_key:
+                    raise ValueError("请配置 LLM API Key")
+
+                # 构建提示词
+                prompt = f"""请根据以下主题，生成一个短视频文案。
+
+主题：{topic}
+视频时长：约 {duration} 秒
+
+要求：
+1. 文案应该吸引人，适合短视频平台
+2. 将文案分为 3-5 个场景，每个场景包含：
+   - 场景描述（用于生成 AI 配图/视频）
+   - 口播文案（用于 TTS 语音解说）
+3. 每个场景的时长应该合理分配
+4. 返回 JSON 格式，格式如下：
+{{
+  "title": "视频标题",
+  "scenes": [
+    {{
+      "index": 1,
+      "text": "场景口播文案",
+      "prompt": "场景描述（用于 AI 生成）",
+      "duration": 10.0,
+      "media_type": "image"
+    }}
+  ],
+  "full_text": "所有场景口播文案合并后的完整文本"
+}}
+
+注意：
+- media_type 可以是 "image" 或 "video"
+- duration 单位为秒
+- prompt 应该详细描述场景画面，便于 AI 生成
+- full_text 是所有场景 text 字段合并后的完整文本，用于 TTS
+
+请直接返回 JSON，不要有其他内容。"""
+
+                # 调用 LLM
+                response = await llm_corrector.call_llm(
+                    prompt=prompt,
+                    model=llm_model,
+                    api_key=llm_api_key
+                )
+
+                if not response:
+                    raise ValueError("LLM API 调用失败")
+
+                # 解析响应
+                json_match = re.search(r'\{[\s\S]*\}', response)
+                if json_match:
+                    json_str = json_match.group(0)
+                else:
+                    json_str = response
+
+                script_data = json.loads(json_str)
+
+                # 如果没有 full_text 字段，自动生成
+                if "full_text" not in script_data:
+                    script_data["full_text"] = " ".join([scene["text"] for scene in script_data.get("scenes", [])])
+
+                Logger.info(f"LLM生成视频文案成功: {script_data.get('title')}, 共 {len(script_data.get('scenes', []))} 个场景")
+
+                return {
+                    "success": True,
+                    "output": script_data,
+                    "output_files": []
+                }
+
+            except Exception as e:
+                Logger.error(f"LLM生成视频文案失败: {e}")
+                return {
+                    "success": False,
+                    "error": str(e),
+                    "output": None,
+                    "output_files": []
+                }
+
+        self._handlers["llm_generate_script"] = llm_generate_script_handler
+        Logger.info("注册任务处理器: llm_generate_script (LLM生成视频文案)")
+
+    def _register_comfyui_generate_media_handler(self):
+        """注册ComfyUI生成AI配图/视频任务处理器"""
+        async def comfyui_generate_media_handler(params: Dict[str, Any]) -> Dict[str, Any]:
+            """ComfyUI生成AI配图/视频任务处理器"""
+            try:
+                from modules.comfyui_module import ComfyUIModule
+                from config import config
+                from pathlib import Path
+                import aiohttp
+
+                comfyui_module = ComfyUIModule()
+
+                script = params.get("script", {})
+                comfyui_server_url = params.get("comfyui_server_url", config.COMFYUI_SERVER_URL)
+                image_workflow_path = params.get("image_workflow_path", "")
+                video_workflow_path = params.get("video_workflow_path", "")
+
+                scenes = script.get("scenes", [])
+                if not scenes:
+                    raise ValueError("脚本中没有场景数据")
+
+                # 加载默认工作流
+                if not image_workflow_path:
+                    workflow_dir = Path(__file__).parent.parent / "workflows"
+                    image_workflow_path = workflow_dir / "wan2_2_14B_i2v_gguf_4step.json"
+
+                if not video_workflow_path:
+                    video_workflow_path = image_workflow_path
+
+                # 创建任务目录
+                job_dir = FileUtils.create_job_dir()
+                media_files = []
+
+                for i, scene in enumerate(scenes):
+                    try:
+                        Logger.info(f"生成场景 {i+1}/{len(scenes)}: {scene.get('prompt', '')[:50]}...")
+
+                        # 根据媒体类型选择工作流
+                        media_type = scene.get("media_type", "image")
+                        if media_type == "video":
+                            workflow_path = video_workflow_path
+                        else:
+                            workflow_path = image_workflow_path
+
+                        # 加载工作流
+                        with open(workflow_path, 'r', encoding='utf-8') as f:
+                            workflow = json.load(f)
+
+                        # 使用参数解析器替换工作流中的参数
+                        # 构建场景参数字典
+                        scene_params = {
+                            "prompt": scene.get("prompt", ""),
+                            "index": i + 1,
+                            "total": len(scenes),
+                            "media_type": media_type,
+                            "duration": scene.get("duration", 10.0),
+                            "text": scene.get("text", ""),
+                            "scene": scene
+                        }
+
+                        # 使用参数解析器替换工作流中的占位符
+                        from modules.parameter_resolver import parameter_resolver
+                        resolved_workflow = parameter_resolver.resolve(
+                            workflow,
+                            scene_params,
+                            {}
+                        )
+
+                        # 执行工作流
+                        result = await comfyui_module.execute_workflow_from_json(
+                            workflow_json=json.dumps(resolved_workflow),
+                            server_url=comfyui_server_url,
+                            timeout=300
+                        )
+
+                        if result["success"]:
+                            # 下载生成的文件
+                            if media_type == "video" and result.get("output_videos"):
+                                output_url = result["output_videos"][0]["url"]
+                                output_filename = f"scene_{i+1:02d}_{media_type}.mp4"
+                            elif result.get("output_images"):
+                                output_url = result["output_images"][0]["url"]
+                                output_filename = f"scene_{i+1:02d}_{media_type}.png"
+                            else:
+                                raise ValueError("工作流执行成功但没有输出")
+
+                            # 下载文件
+                            output_path = job_dir / output_filename
+                            async with aiohttp.ClientSession() as session:
+                                async with session.get(output_url) as response:
+                                    if response.status == 200:
+                                        with open(output_path, 'wb') as f:
+                                            f.write(await response.read())
+                                        media_files.append(str(output_path))
+                                        Logger.info(f"场景 {i+1} 生成成功: {output_path}")
+                                    else:
+                                        raise ValueError(f"下载文件失败: HTTP {response.status}")
+                        else:
+                            raise ValueError(f"工作流执行失败: {result.get('error')}")
+
+                    except Exception as e:
+                        Logger.error(f"生成场景 {i+1} 失败: {e}")
+                        continue
+
+                if not media_files:
+                    raise ValueError("所有场景生成失败")
+
+                Logger.info(f"ComfyUI生成AI配图/视频成功，共 {len(media_files)} 个文件")
+
+                return {
+                    "success": True,
+                    "output": media_files,
+                    "output_files": media_files
+                }
+
+            except Exception as e:
+                Logger.error(f"ComfyUI生成AI配图/视频失败: {e}")
+                return {
+                    "success": False,
+                    "error": str(e),
+                    "output": [],
+                    "output_files": []
+                }
+
+        self._handlers["comfyui_generate_media"] = comfyui_generate_media_handler
+        Logger.info("注册任务处理器: comfyui_generate_media (ComfyUI生成AI配图/视频)")
 
 
 # 创建全局任务处理器实例
