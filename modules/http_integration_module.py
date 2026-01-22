@@ -32,7 +32,8 @@ class HTTPIntegrationModule:
         body_json: Optional[Dict[str, Any]] = None,
         form_data: Optional[Dict[str, Any]] = None,
         auth_config: Optional[Dict[str, Any]] = None,
-        timeout: Optional[float] = None
+        timeout: Optional[float] = None,
+        files: Optional[Dict[str, str]] = None
     ) -> Dict[str, Any]:
         """
         发送HTTP请求
@@ -47,6 +48,7 @@ class HTTPIntegrationModule:
             form_data: 请求体（表单格式）
             auth_config: 认证配置
             timeout: 超时时间（秒）
+            files: 文件上传（multipart/form-data），格式：{"field_name": "file_path"}
 
         Returns:
             Dict[str, Any]: 请求结果
@@ -79,13 +81,36 @@ class HTTPIntegrationModule:
             content = None
             json_data = None
             data = None
+            files_data = None
 
+            # 处理文件上传
+            if files:
+                files_data = {}
+                for field_name, file_path in files.items():
+                    if not file_path:
+                        continue
+                    
+                    file_path_obj = Path(file_path)
+                    if not file_path_obj.exists():
+                        Logger.warning(f"文件不存在: {file_path}")
+                        continue
+                    
+                    # 使用文件名作为文件名
+                    filename = file_path_obj.name
+                    # 根据 MIME 类型猜测
+                    mime_type, _ = mimetypes.guess_type(file_path)
+                    if mime_type is None:
+                        mime_type = "application/octet-stream"
+                    
+                    files_data[field_name] = (filename, open(file_path, "rb"), mime_type)
+                    Logger.info(f"准备上传文件: {field_name} -> {file_path} ({mime_type})")
+            
             if body_json:
                 request_headers["Content-Type"] = "application/json"
                 json_data = body_json
-            elif form_data:
+            elif form_data and not files_data:
                 data = form_data
-            elif body_data:
+            elif body_data and not files_data:
                 content = body_data
 
             # 发送请求（禁用自动重定向，手动处理）
@@ -100,8 +125,17 @@ class HTTPIntegrationModule:
                     params=params,
                     content=content,
                     json=json_data,
-                    data=data
+                    data=data,
+                    files=files_data
                 )
+
+                # 关闭打开的文件
+                if files_data:
+                    for field_name, file_tuple in files_data.items():
+                        if len(file_tuple) >= 2:
+                            file_obj = file_tuple[1]
+                            if hasattr(file_obj, 'close'):
+                                file_obj.close()
 
                 # 检查是否是重定向响应（301, 302, 303, 307, 308）
                 redirect_codes = [301, 302, 303, 307, 308]
@@ -221,7 +255,8 @@ class HTTPIntegrationModule:
         auth_config: Optional[Dict[str, Any]] = None,
         timeout: Optional[float] = None,
         save_filename: Optional[str] = None,
-        output_dir: Optional[Path] = None
+        output_dir: Optional[Path] = None,
+        files: Optional[Dict[str, str]] = None
     ) -> Dict[str, Any]:
         """
         发送HTTP请求并保存二进制响应到本地
@@ -238,6 +273,7 @@ class HTTPIntegrationModule:
             timeout: 超时时间（秒）
             save_filename: 保存文件名（不含扩展名）
             output_dir: 输出目录
+            files: 文件上传（multipart/form-data），格式：{"field_name": "file_path"}
 
         Returns:
             Dict[str, Any]: 请求结果
@@ -270,13 +306,36 @@ class HTTPIntegrationModule:
             content = None
             json_data = None
             data = None
+            files_data = None
 
+            # 处理文件上传
+            if files:
+                files_data = {}
+                for field_name, file_path in files.items():
+                    if not file_path:
+                        continue
+                    
+                    file_path_obj = Path(file_path)
+                    if not file_path_obj.exists():
+                        Logger.warning(f"文件不存在: {file_path}")
+                        continue
+                    
+                    # 使用文件名作为文件名
+                    filename = file_path_obj.name
+                    # 根据 MIME 类型猜测
+                    mime_type, _ = mimetypes.guess_type(file_path)
+                    if mime_type is None:
+                        mime_type = "application/octet-stream"
+                    
+                    files_data[field_name] = (filename, open(file_path, "rb"), mime_type)
+                    Logger.info(f"准备上传文件: {field_name} -> {file_path} ({mime_type})")
+            
             if body_json:
                 request_headers["Content-Type"] = "application/json"
                 json_data = body_json
-            elif form_data:
+            elif form_data and not files_data:
                 data = form_data
-            elif body_data:
+            elif body_data and not files_data:
                 content = body_data
 
             # 发送请求（禁用自动重定向，手动处理）
@@ -291,8 +350,17 @@ class HTTPIntegrationModule:
                     params=params,
                     content=content,
                     json=json_data,
-                    data=data
+                    data=data,
+                    files=files_data
                 )
+
+                # 关闭打开的文件
+                if files_data:
+                    for field_name, file_tuple in files_data.items():
+                        if len(file_tuple) >= 2:
+                            file_obj = file_tuple[1]
+                            if hasattr(file_obj, 'close'):
+                                file_obj.close()
 
                 # 检查是否是重定向响应（301, 302, 303, 307, 308）
                 redirect_codes = [301, 302, 303, 307, 308]
@@ -355,7 +423,8 @@ class HTTPIntegrationModule:
                 if not save_filename:
                     save_filename = f"http_response_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
 
-                save_path = output_dir / f"{save_filename}{file_extension}"
+                # 处理文件名：支持带/分隔的路径，兼容带后缀的场景
+                save_path = self._resolve_save_path(output_dir, save_filename, file_extension, url, params)
 
                 # 保存文件
                 with open(save_path, "wb") as f:
@@ -480,6 +549,60 @@ class HTTPIntegrationModule:
 
         # 默认返回.bin
         return ".bin"
+
+    def _resolve_save_path(
+        self,
+        output_dir: Path,
+        save_filename: str,
+        default_extension: str,
+        url: str,
+        params: Optional[Dict[str, Any]] = None
+    ) -> Path:
+        """
+        解析保存路径，支持子目录和后缀处理
+
+        Args:
+            output_dir: 输出根目录
+            save_filename: 保存文件名（可能包含路径和后缀）
+            default_extension: 默认文件扩展名
+            url: 请求URL（用于兜底判断后缀）
+            params: 请求参数（可能包含filename参数）
+
+        Returns:
+            Path: 完整的保存路径
+        """
+        # 将/转换为路径分隔符（兼容Windows和Unix）
+        save_path = output_dir / save_filename.replace("/", "\\")
+
+        # 检查文件名是否包含后缀
+        if save_path.suffix:
+            # 文件名已指定后缀，直接使用
+            pass
+        else:
+            # 文件名未指定后缀，使用默认后缀
+            save_path = save_path.with_suffix(default_extension)
+
+        # 兜底处理：如果默认后缀是.bin，尝试从其他来源获取更准确的后缀
+        if save_path.suffix == ".bin":
+            # 1. 尝试从请求参数中的filename获取
+            if params and "filename" in params:
+                filename = str(params["filename"])
+                if "." in filename:
+                    save_path = save_path.with_suffix(Path(filename).suffix)
+                    Logger.info(f"从请求参数filename获取后缀: {save_path.suffix}")
+            # 2. 尝试从URL路径获取
+            else:
+                url_filename = url.split("/")[-1].split("?")[0]
+                if "." in url_filename:
+                    save_path = save_path.with_suffix(Path(url_filename).suffix)
+                    Logger.info(f"从URL路径获取后缀: {save_path.suffix}")
+
+        # 如果路径包含子目录，确保父目录存在
+        if save_path.parent != output_dir:
+            save_path.parent.mkdir(parents=True, exist_ok=True)
+            Logger.info(f"创建子目录: {save_path.parent}")
+
+        return save_path
 
 
 # 创建全局实例

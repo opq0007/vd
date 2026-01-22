@@ -2837,6 +2837,7 @@ def register_routes(app) -> None:
         auth_key_value: str = Form(None, description="API Key值"),
         auth_custom_header: str = Form(None, description="自定义认证头"),
         timeout: float = Form(30.0, description="超时时间（秒）"),
+        files: str = Form(None, description="文件上传配置（JSON字符串，格式：{field_name: file_path}）"),
         payload: Dict[str, Any] = Depends(verify_token)
     ) -> Dict[str, Any]:
         """
@@ -2858,6 +2859,7 @@ def register_routes(app) -> None:
             auth_key_value: API Key值
             auth_custom_header: 自定义认证头
             timeout: 超时时间（秒）
+            files: 文件上传配置（JSON字符串，格式：{field_name: file_path}）
             payload: 认证载荷
 
         Returns:
@@ -2910,6 +2912,19 @@ def register_routes(app) -> None:
                         error_code="INVALID_FORM_DATA_JSON"
                     )
 
+            # 解析文件上传配置
+            files_dict = None
+            if files:
+                try:
+                    files_dict = json.loads(files)
+                    # 确保是字符串到字符串的映射
+                    files_dict = {str(k): str(v) for k, v in files_dict.items()}
+                except json.JSONDecodeError:
+                    return response_formatter.error(
+                        message="文件上传配置JSON格式无效",
+                        error_code="INVALID_FILES_JSON"
+                    )
+
             # 准备认证配置
             auth_config = None
             if auth_type and auth_type != "none":
@@ -2935,7 +2950,8 @@ def register_routes(app) -> None:
                 body_json=body_json_dict,
                 form_data=form_data_dict,
                 auth_config=auth_config,
-                timeout=timeout
+                timeout=timeout,
+                files=files_dict
             )
 
             if result.get("success", False):
@@ -2970,6 +2986,7 @@ def register_routes(app) -> None:
         auth_custom_header: str = Form(None, description="自定义认证头"),
         timeout: float = Form(30.0, description="超时时间（秒）"),
         save_filename: str = Form(None, description="保存文件名（不含扩展名）"),
+        files: str = Form(None, description="文件上传配置（JSON字符串，格式：{field_name: file_path}）"),
         payload: Dict[str, Any] = Depends(verify_token)
     ) -> Dict[str, Any]:
         """
@@ -2992,6 +3009,7 @@ def register_routes(app) -> None:
             auth_custom_header: 自定义认证头
             timeout: 超时时间（秒）
             save_filename: 保存文件名（不含扩展名）
+            files: 文件上传配置（JSON字符串，格式：{field_name: file_path}）
             payload: 认证载荷
 
         Returns:
@@ -3044,6 +3062,19 @@ def register_routes(app) -> None:
                         error_code="INVALID_FORM_DATA_JSON"
                     )
 
+            # 解析文件上传配置
+            files_dict = None
+            if files:
+                try:
+                    files_dict = json.loads(files)
+                    # 确保是字符串到字符串的映射
+                    files_dict = {str(k): str(v) for k, v in files_dict.items()}
+                except json.JSONDecodeError:
+                    return response_formatter.error(
+                        message="文件上传配置JSON格式无效",
+                        error_code="INVALID_FILES_JSON"
+                    )
+
             # 准备认证配置
             auth_config = None
             if auth_type and auth_type != "none":
@@ -3070,7 +3101,8 @@ def register_routes(app) -> None:
                 form_data=form_data_dict,
                 auth_config=auth_config,
                 timeout=timeout,
-                save_filename=save_filename
+                save_filename=save_filename,
+                files=files_dict
             )
 
             if result.get("success", False):

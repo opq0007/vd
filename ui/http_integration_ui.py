@@ -33,31 +33,61 @@ def parse_json_text(text: str) -> Optional[Dict[str, Any]]:
 
 
 def parse_form_data_text(text: str) -> Optional[Dict[str, Any]]:
-    """
-    解析表单数据文本（支持 key=value 格式）
+        """
+        解析表单数据文本（支持 key=value 格式）
 
-    Args:
-        text: 表单数据文本
+        Args:
+            text: 表单数据文本
 
-    Returns:
-        Optional[Dict[str, Any]]: 解析后的字典
-    """
-    if not text or not text.strip():
-        return None
+        Returns:
+            Optional[Dict[str, Any]]: 解析后的字典
+        """
+        if not text or not text.strip():
+            return None
 
-    try:
-        # 尝试JSON格式
-        return json.loads(text)
-    except json.JSONDecodeError:
-        # 尝试key=value格式
+        try:
+            # 尝试JSON格式
+            return json.loads(text)
+        except json.JSONDecodeError:
+            # 尝试key=value格式
+            result = {}
+            for line in text.strip().split('\n'):
+                line = line.strip()
+                if line and '=' in line:
+                    key, value = line.split('=', 1)
+                    result[key.strip()] = value.strip()
+            return result if result else None
+
+
+def parse_files_text(text: str) -> Optional[Dict[str, str]]:
+        """
+        解析文件上传配置文本
+
+        Args:
+            text: 文件配置文本（格式：field_name=file_path）
+
+        Returns:
+            Optional[Dict[str, str]]: 解析后的字典 {field_name: file_path}
+        """
+        if not text or not text.strip():
+            return None
+
+        try:
+            # 尝试JSON格式
+            data = json.loads(text)
+            if isinstance(data, dict):
+                return {str(k): str(v) for k, v in data.items()}
+        except json.JSONDecodeError:
+            pass
+
+        # 尝试field_name=file_path格式
         result = {}
         for line in text.strip().split('\n'):
             line = line.strip()
             if line and '=' in line:
-                key, value = line.split('=', 1)
-                result[key.strip()] = value.strip()
+                field_name, file_path = line.split('=', 1)
+                result[field_name.strip()] = file_path.strip()
         return result if result else None
-
 
 def parse_headers_text(text: str) -> Optional[Dict[str, str]]:
     """
@@ -142,126 +172,134 @@ def format_result(result: Dict[str, Any]) -> str:
 
 
 async def send_http_request(
-    method: str,
-    url: str,
-    headers_text: str,
-    params_text: str,
-    body_format: str,
-    body_data_text: str,
-    body_json_text: str,
-    form_data_text: str,
-    auth_type: str,
-    auth_token: str,
-    auth_username: str,
-    auth_password: str,
-    auth_key_name: str,
-    auth_key_value: str,
-    auth_custom_header: str,
-    timeout: float,
-    save_binary: bool,
-    save_filename: str,
-    progress=gr.Progress()
+        method: str,
+        url: str,
+        headers_text: str,
+        params_text: str,
+        body_format: str,
+        body_data_text: str,
+        body_json_text: str,
+        form_data_text: str,
+        files_text: str,
+        auth_type: str,
+        auth_token: str,
+        auth_username: str,
+        auth_password: str,
+        auth_key_name: str,
+        auth_key_value: str,
+        auth_custom_header: str,
+        timeout: float,
+        save_binary: bool,
+        save_filename: str,
+        progress=gr.Progress()
 ) -> str:
-    """
-    发送HTTP请求
+        """
+        发送HTTP请求
 
-    Args:
-        method: HTTP方法
-        url: 请求URL
-        headers_text: 请求头文本
-        params_text: 查询参数文本
-        body_format: 请求体格式 (none/data/json/form)
-        body_data_text: 原始数据文本
-        body_json_text: JSON数据文本
-        form_data_text: 表单数据文本
-        auth_type: 认证类型
-        auth_token: Bearer Token
-        auth_username: Basic认证用户名
-        auth_password: Basic认证密码
-        auth_key_name: API Key名称
-        auth_key_value: API Key值
-        auth_custom_header: 自定义认证头
-        timeout: 超时时间
-        save_binary: 是否保存二进制流
-        save_filename: 保存文件名
-        progress: 进度条
+        Args:
+            method: HTTP方法
+            url: 请求URL
+            headers_text: 请求头文本
+            params_text: 查询参数文本
+            body_format: 请求体格式 (none/data/json/form/files)
+            body_data_text: 原始数据文本
+            body_json_text: JSON数据文本
+            form_data_text: 表单数据文本
+            files_text: 文件上传配置文本
+            auth_type: 认证类型
+            auth_token: Bearer Token
+            auth_username: Basic认证用户名
+            auth_password: Basic认证密码
+            auth_key_name: API Key名称
+            auth_key_value: API Key值
+            auth_custom_header: 自定义认证头
+            timeout: 超时时间
+            save_binary: 是否保存二进制流
+            save_filename: 保存文件名
+            progress: 进度条
 
-    Returns:
-        str: 格式化的结果
-    """
-    try:
-        progress(0.1, desc="准备请求...")
+        Returns:
+            str: 格式化的结果
+        """
+        try:
+            progress(0.1, desc="准备请求...")
 
-        # 解析请求头
-        headers = parse_headers_text(headers_text)
+            # 解析请求头
+            headers = parse_headers_text(headers_text)
 
-        # 解析查询参数
-        params = parse_json_text(params_text)
+            # 解析查询参数
+            params = parse_json_text(params_text)
 
-        # 准备请求体
-        body_data = None
-        body_json = None
-        form_data = None
+            # 准备请求体
+            body_data = None
+            body_json = None
+            form_data = None
+            files = None
 
-        if body_format == "data":
-            body_data = body_data_text if body_data_text.strip() else None
-        elif body_format == "json":
-            body_json = parse_json_text(body_json_text)
-        elif body_format == "form":
-            form_data = parse_form_data_text(form_data_text)
+            if body_format == "data":
+                body_data = body_data_text if body_data_text.strip() else None
+            elif body_format == "json":
+                body_json = parse_json_text(body_json_text)
+            elif body_format == "form":
+                form_data = parse_form_data_text(form_data_text)
+            elif body_format == "files":
+                form_data = parse_form_data_text(form_data_text)
+                files = parse_files_text(files_text)
 
-        # 准备认证配置
-        auth_config = None
-        if auth_type and auth_type != "none":
-            auth_config = {"type": auth_type}
-            if auth_type == "bearer":
-                auth_config["token"] = auth_token
-            elif auth_type == "basic":
-                auth_config["username"] = auth_username
-                auth_config["password"] = auth_password
-            elif auth_type == "api_key":
-                auth_config["key_name"] = auth_key_name or "X-API-Key"
-                auth_config["key_value"] = auth_key_value
-            elif auth_type == "custom":
-                auth_config["header"] = auth_custom_header
+            # 准备认证配置
+            auth_config = None
+            if auth_type and auth_type != "none":
+                auth_config = {"type": auth_type}
+                if auth_type == "bearer":
+                    auth_config["token"] = auth_token
+                elif auth_type == "basic":
+                    auth_config["username"] = auth_username
+                    auth_config["password"] = auth_password
+                elif auth_type == "api_key":
+                    auth_config["key_name"] = auth_key_name or "X-API-Key"
+                    auth_config["key_value"] = auth_key_value
+                elif auth_type == "custom":
+                    auth_config["header"] = auth_custom_header
 
-        progress(0.3, desc="发送请求...")
+            progress(0.3, desc="发送请求...")
 
-        # 发送请求
-        if save_binary:
-            result = await http_integration_module.send_request_and_save(
-                method=method,
-                url=url,
-                headers=headers,
-                params=params,
-                body_data=body_data,
-                body_json=body_json,
-                form_data=form_data,
-                auth_config=auth_config,
-                timeout=timeout,
-                save_filename=save_filename if save_filename.strip() else None
-            )
-        else:
-            result = await http_integration_module.send_request(
-                method=method,
-                url=url,
-                headers=headers,
-                params=params,
-                body_data=body_data,
-                body_json=body_json,
-                form_data=form_data,
-                auth_config=auth_config,
-                timeout=timeout
-            )
+            # 发送请求
+            if save_binary:
+                result = await http_integration_module.send_request_and_save(
+                    method=method,
+                    url=url,
+                    headers=headers,
+                    params=params,
+                    body_data=body_data,
+                    body_json=body_json,
+                    form_data=form_data,
+                    auth_config=auth_config,
+                    timeout=timeout,
+                    save_filename=save_filename if save_filename.strip() else None,
+                    files=files
+                )
+            else:
+                result = await http_integration_module.send_request(
+                    method=method,
+                    url=url,
+                    headers=headers,
+                    params=params,
+                    body_data=body_data,
+                    body_json=body_json,
+                    form_data=form_data,
+                    auth_config=auth_config,
+                    timeout=timeout,
+                    files=files
+                )
 
-        progress(1.0, desc="完成！")
+            progress(1.0, desc="完成！")
 
-        # 格式化结果
-        return format_result(result)
+            # 格式化结果
+            return format_result(result)
 
-    except Exception as e:
-        Logger.error(f"发送HTTP请求失败: {str(e)}")
-        return f"❌ 请求失败: {str(e)}"
+        except Exception as e:
+            Logger.error(f"发送HTTP请求失败: {str(e)}")
+            return f"❌ 请求失败: {str(e)}"
 
 
 def create_http_integration_interface() -> gr.Blocks:
@@ -385,7 +423,7 @@ def create_http_integration_interface() -> gr.Blocks:
 
                 # 请求体格式
                 body_format_dropdown = gr.Dropdown(
-                    choices=["none", "data", "json", "form"],
+                    choices=["none", "data", "json", "form", "files"],
                     value="none",
                     label="请求体格式",
                     info="选择请求体的格式"
@@ -414,6 +452,15 @@ def create_http_integration_interface() -> gr.Blocks:
                     lines=5,
                     visible=False,
                     info='支持JSON格式或 key=value 格式（每行一个）'
+                )
+
+                # 文件上传配置
+                files_textarea = gr.Textbox(
+                    label="文件上传配置 (field_name=file_path)",
+                    placeholder='file=output/video.mp4\ndata=uploads/data.json\nimage=output/image.png',
+                    lines=5,
+                    visible=False,
+                    info='格式：field_name=file_path（每行一个），支持JSON格式或 field_name=file_path 格式。文件路径为服务器上的绝对或相对路径。'
                 )
 
         # 二进制流保存配置
@@ -477,7 +524,8 @@ def create_http_integration_interface() -> gr.Blocks:
             return {
                 body_data_textarea: gr.update(visible=(body_format == "data")),
                 body_json_textarea: gr.update(visible=(body_format == "json")),
-                form_data_textarea: gr.update(visible=(body_format == "form"))
+                form_data_textarea: gr.update(visible=(body_format in ["form", "files"])),
+                files_textarea: gr.update(visible=(body_format == "files"))
             }
 
         body_format_dropdown.change(
@@ -486,7 +534,8 @@ def create_http_integration_interface() -> gr.Blocks:
             outputs=[
                 body_data_textarea,
                 body_json_textarea,
-                form_data_textarea
+                form_data_textarea,
+                files_textarea
             ]
         )
 
@@ -502,6 +551,7 @@ def create_http_integration_interface() -> gr.Blocks:
                 body_data_textarea,
                 body_json_textarea,
                 form_data_textarea,
+                files_textarea,
                 auth_type_dropdown,
                 auth_token_input,
                 auth_username_input,
@@ -619,7 +669,17 @@ file=example.jpg
 title=测试图片
 ```
 
-**示例4：带Bearer Token的请求**
+**示例4：POST请求（文件上传）**
+```
+方法: POST
+URL: https://api.example.com/upload
+请求体格式: 文件上传
+文件上传配置:
+file=output/video.mp4
+data=uploads/data.json
+```
+
+**示例5：带Bearer Token的请求**
 ```
 认证类型: Bearer Token
 Bearer Token: your-api-token-here
@@ -633,12 +693,29 @@ URL: https://example.com/image.png
 保存文件名: downloaded_image
 ```
 
+**示例6：上传多个文件**
+```
+方法: POST
+URL: https://api.example.com/batch-upload
+请求体格式: 文件上传
+文件上传配置:
+file1=output/video1.mp4
+file2=output/video2.mp4
+metadata=uploads/metadata.json
+```
+
 #### 注意事项
 - 确保URL格式正确，必须包含协议（http://或https://）
 - JSON格式必须符合标准，注意引号和逗号的使用
 - 认证信息会被安全处理，不会在日志中明文显示
 - 下载大文件时请适当增加超时时间
 - 二进制流文件会自动根据Content-Type或URL推断扩展名
+- **文件上传功能**：
+  - 文件路径必须是服务器上存在的文件路径（绝对路径或相对于项目根目录的路径）
+  - 支持同时上传多个文件
+  - 支持同时上传文件和表单数据
+  - 文件上传使用 multipart/form-data 格式
+  - 文件会自动根据文件扩展名推断 MIME 类型
         """)
 
     return http_integration_interface
