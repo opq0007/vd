@@ -153,10 +153,25 @@ class VideoMergeModule:
 
         ffmpeg_path = SystemUtils.get_ffmpeg_path()
 
+        # 检查是否需要标准化视频
+        needs_normalization = False
+        Logger.info("检查视频是否需要标准化...")
+        for i, video_path in enumerate(video_paths):
+            if await self._needs_audio_normalization(video_path):
+                needs_normalization = True
+                Logger.info(f"视频 {i+1}/{len(video_paths)} ({video_path.name}) 需要标准化")
+                break
+            else:
+                Logger.info(f"视频 {i+1}/{len(video_paths)} ({video_path.name}) 不需要标准化")
+
         # 标准化所有视频的音频和视频参数（采样率、声道、分辨率、帧率、编码格式等）
-        Logger.info("开始标准化视频参数（音频+视频）...")
-        normalized_paths = await self._normalize_video_audio(video_paths, output_path.parent)
-        Logger.info(f"视频标准化完成，共 {len(normalized_paths)} 个文件")
+        if needs_normalization:
+            Logger.info("开始标准化视频参数（音频+视频）...")
+            normalized_paths = await self._normalize_video_audio(video_paths, output_path.parent)
+            Logger.info(f"视频标准化完成，共 {len(normalized_paths)} 个文件")
+        else:
+            Logger.info("所有视频参数已标准化，跳过标准化步骤")
+            normalized_paths = video_paths
 
         # 创建 concat 列表文件
         concat_list_file = output_path.parent / "concat_list.txt"

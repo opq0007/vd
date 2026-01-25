@@ -9,7 +9,7 @@ import re
 import requests
 import subprocess
 from pathlib import Path
-from typing import Tuple
+from typing import Tuple, Optional
 
 from utils.system_utils import SystemUtils
 from utils.logger import Logger
@@ -37,7 +37,7 @@ class MediaProcessor:
         probe_cmd = [ffmpeg_path, "-i", str(input_path), "-hide_banner"]
         # 在 Windows 系统上使用 GBK 编码，在其他系统上使用 UTF-8
         encoding = 'gbk' if os.name == 'nt' else 'utf-8'
-        result = subprocess.run(probe_cmd, capture_output=True, text=True, encoding=encoding)
+        result = subprocess.run(probe_cmd, capture_output=True, text=True, encoding=encoding, errors='ignore')
         
         # 检查是否有音频流
         has_audio = False
@@ -140,7 +140,7 @@ class MediaProcessor:
                     cmd = f'{ffmpeg_path} -y -i "{video_rel}" -i "{srt_rel}" -c:v copy -c:a copy -c:s ass -metadata:s:s:0 language=chi -disposition:s:0 default -map 0:v -map 0:a? -map 1:s "{output_rel}"'
 
                 encoding = 'gbk' if os.name == 'nt' else 'utf-8'
-                proc = subprocess.run(cmd, shell=True, capture_output=True, text=True, encoding=encoding)
+                proc = subprocess.run(cmd, shell=True, capture_output=True, text=True, encoding=encoding, errors='ignore')
                 if proc.returncode != 0:
                     raise RuntimeError(
                         f"Command failed: {cmd}\n"
@@ -199,17 +199,28 @@ class MediaProcessor:
             int: 视频宽度
         """
         probe_cmd = [ffmpeg_path, "-i", video_path, "-hide_banner"]
-        # 在 Windows 系统上使用 GBK 编码，在其他系统上使用 UTF-8
-        encoding = 'gbk' if os.name == 'nt' else 'utf-8'
-        probe_result = subprocess.run(probe_cmd, capture_output=True, text=True, encoding=encoding)
         video_width = 720
 
-        for line in probe_result.stderr.split('\n'):
-            if 'Video:' in line and 'x' in line:
-                match = re.search(r'(\d{3,5})x(\d{3,5})', line)
-                if match:
-                    video_width = int(match.group(1))
-                break
+        try:
+            # 在 Windows 系统上使用 GBK 编码，在其他系统上使用 UTF-8
+            encoding = 'gbk' if os.name == 'nt' else 'utf-8'
+            probe_result = subprocess.run(probe_cmd, capture_output=True, text=True, encoding=encoding, errors='ignore')
+
+            # 检查 probe_result 是否有效
+            if probe_result is None or probe_result.stderr is None:
+                Logger.warning(f"无法获取视频信息: {video_path}，使用默认宽度 720")
+                return video_width
+
+            for line in probe_result.stderr.split('\n'):
+                if 'Video:' in line and 'x' in line:
+                    match = re.search(r'(\d{3,5})x(\d{3,5})', line)
+                    if match:
+                        video_width = int(match.group(1))
+                    break
+
+        except (UnicodeDecodeError, AttributeError, Exception) as e:
+            Logger.warning(f"获取视频宽度时出错: {video_path}, 错误: {e}，使用默认宽度 720")
+            video_width = 720
 
         return video_width
 
@@ -291,7 +302,7 @@ class MediaProcessor:
                 Logger.info(f"执行 FFmpeg 命令: {' '.join(cmd)}")
                 print(f"执行命令: {' '.join(cmd)}")
                 encoding = 'gbk' if os.name == 'nt' else 'utf-8'
-                proc = subprocess.run(cmd, capture_output=True, text=True, encoding=encoding)
+                proc = subprocess.run(cmd, capture_output=True, text=True, encoding=encoding, errors='ignore')
                 Logger.info(f"FFmpeg stdout: {proc.stdout}")
                 if proc.stderr:
                     Logger.info(f"FFmpeg stderr: {proc.stderr}")
@@ -307,7 +318,7 @@ class MediaProcessor:
                         output_rel
                     ]
                     Logger.info(f"执行备用 FFmpeg 命令: {' '.join(cmd)}")
-                    proc = subprocess.run(cmd, capture_output=True, text=True, encoding=encoding)
+                    proc = subprocess.run(cmd, capture_output=True, text=True, encoding=encoding, errors='ignore')
                     Logger.info(f"备用 FFmpeg stdout: {proc.stdout}")
                     if proc.stderr:
                         Logger.info(f"备用 FFmpeg stderr: {proc.stderr}")
@@ -347,7 +358,7 @@ class MediaProcessor:
         try:
             # 在 Windows 系统上使用 GBK 编码，在其他系统上使用 UTF-8
             encoding = 'gbk' if os.name == 'nt' else 'utf-8'
-            result = subprocess.run(cmd, capture_output=True, text=True, encoding=encoding)
+            result = subprocess.run(cmd, capture_output=True, text=True, encoding=encoding, errors='ignore')
             duration_match = re.search(r'Duration: (\d{2}):(\d{2}):(\d{2}\.\d{2})', result.stderr)
             if duration_match:
                 hours, minutes, seconds = map(float, duration_match.groups())
@@ -395,7 +406,7 @@ class MediaProcessor:
             probe_cmd = [ffmpeg_path, "-i", str(video_path), "-hide_banner"]
             # 在 Windows 系统上使用 GBK 编码，在其他系统上使用 UTF-8
             encoding = 'gbk' if os.name == 'nt' else 'utf-8'
-            probe_result = subprocess.run(probe_cmd, capture_output=True, text=True, encoding=encoding)
+            probe_result = subprocess.run(probe_cmd, capture_output=True, text=True, encoding=encoding, errors='ignore')
             has_audio = 'Audio:' in probe_result.stderr
 
             # 构建命令
@@ -403,7 +414,12 @@ class MediaProcessor:
                 if keep_original_audio and has_audio:
                     # 保留原音频并混合
                     Logger.info("保留原视频音频，与新音频混合")
-                    cmd_str = f'{ffmpeg_path} -y -i "{video_rel}" -i "{audio_rel}" -filter_complex "[0:a][1:a]amix=inputs=2:duration=first:dropout_transition=2,volume={audio_volume}[aout]" -map 0:v:0 -map "[aout]" -c:v copy -c:a aac'
+                    # 只调整新音频的音量，然后混合
+                    if audio_volume != 1.0:
+                        cmd_str = f'{ffmpeg_path} -y -i "{video_rel}" -i "{audio_rel}" -filter_complex "[1:a]volume={audio_volume}[a1_vol];[0:a][a1_vol]amix=inputs=2:duration=first:dropout_transition=2[aout]" -map 0:v:0 -map "[aout]" -c:v copy -c:a aac'
+                        Logger.info(f"应用新音频音量调整: {audio_volume}x")
+                    else:
+                        cmd_str = f'{ffmpeg_path} -y -i "{video_rel}" -i "{audio_rel}" -filter_complex "[0:a][1:a]amix=inputs=2:duration=first:dropout_transition=2[aout]" -map 0:v:0 -map "[aout]" -c:v copy -c:a aac'
                     if use_shortest:
                         cmd_str += ' -shortest'
                     cmd_str += f' "{output_rel}"'
@@ -426,7 +442,7 @@ class MediaProcessor:
                 
                 # 直接执行命令
                 encoding = 'gbk' if os.name == 'nt' else 'utf-8'
-                proc = subprocess.run(cmd_str, shell=True, capture_output=True, text=True, encoding=encoding)
+                proc = subprocess.run(cmd_str, shell=True, capture_output=True, text=True, encoding=encoding, errors='ignore')
                 if proc.returncode != 0:
                     raise RuntimeError(
                         f"Command failed: {cmd_str}\n"
@@ -438,12 +454,22 @@ class MediaProcessor:
                 if keep_original_audio and has_audio:
                     # 保留原音频并混合
                     Logger.info("保留原视频音频，与新音频混合")
-                    cmd = [
-                        ffmpeg_path, "-y", "-i", video_rel, "-i", audio_rel,
-                        "-filter_complex", f"[0:a][1:a]amix=inputs=2:duration=first:dropout_transition=2,volume={audio_volume}[aout]",
-                        "-map", "0:v:0", "-map", "[aout]",
-                        "-c:v", "copy", "-c:a", "aac"
-                    ]
+                    # 只调整新音频的音量，然后混合
+                    if audio_volume != 1.0:
+                        cmd = [
+                            ffmpeg_path, "-y", "-i", video_rel, "-i", audio_rel,
+                            "-filter_complex", f"[1:a]volume={audio_volume}[a1_vol];[0:a][a1_vol]amix=inputs=2:duration=first:dropout_transition=2[aout]",
+                            "-map", "0:v:0", "-map", "[aout]",
+                            "-c:v", "copy", "-c:a", "aac"
+                        ]
+                        Logger.info(f"应用新音频音量调整: {audio_volume}x")
+                    else:
+                        cmd = [
+                            ffmpeg_path, "-y", "-i", video_rel, "-i", audio_rel,
+                            "-filter_complex", f"[0:a][1:a]amix=inputs=2:duration=first:dropout_transition=2[aout]",
+                            "-map", "0:v:0", "-map", "[aout]",
+                            "-c:v", "copy", "-c:a", "aac"
+                        ]
                     if use_shortest:
                         cmd.append("-shortest")
                     cmd.append(output_rel)
@@ -493,36 +519,36 @@ class MediaProcessor:
         """
         audio_path = Path(audio_path).resolve()
         output_path = Path(output_path).resolve()
-        
+
         ffmpeg_path = SystemUtils.get_ffmpeg_path()
-        
+
         # 使用 atempo 滤镜调整音频速度
         # atempo 滤镜的范围是 0.5 到 100.0
         # 如果需要的倍数超出范围，可以级联多个 atempo 滤镜
         if speed_factor < 0.5 or speed_factor > 2.0:
             Logger.warning(f"语速调整倍数 {speed_factor} 超出推荐范围 (0.5-2.0)，可能影响音质")
-        
+
         original_cwd = os.getcwd()
-        
+
         try:
             output_dir = output_path.parent
             os.chdir(output_dir)
-            
+
             audio_rel = os.path.relpath(audio_path, output_dir)
             output_rel = output_path.name
-            
+
             audio_rel = audio_rel.replace('\\', '/')
-            
+
             if os.name == 'nt':  # Windows
                 # 构建FFmpeg命令
                 cmd_str = f'{ffmpeg_path} -y -i "{audio_rel}" -filter:a "atempo={speed_factor}" "{output_rel}"'
-                
+
                 Logger.info(f"调整音频语速: {speed_factor}x")
                 Logger.info(f"执行命令: {cmd_str}")
-                
+
                 # 执行命令
                 encoding = 'gbk' if os.name == 'nt' else 'utf-8'
-                proc = subprocess.run(cmd_str, shell=True, capture_output=True, text=True, encoding=encoding)
+                proc = subprocess.run(cmd_str, shell=True, capture_output=True, text=True, encoding=encoding, errors='ignore')
                 if proc.returncode != 0:
                     raise RuntimeError(
                         f"Command failed: {cmd_str}\n"
@@ -536,15 +562,114 @@ class MediaProcessor:
                     "-filter:a", f"atempo={speed_factor}",
                     output_rel
                 ]
-                
+
                 Logger.info(f"调整音频语速: {speed_factor}x")
                 SystemUtils.run_cmd(cmd)
-            
+
             Logger.info(f"音频语速调整成功: {output_path}")
             return output_path
-            
+
         except Exception as e:
             Logger.error(f"音频语速调整失败: {e}")
+            raise
+        finally:
+            os.chdir(original_cwd)
+
+    @staticmethod
+    def normalize_audio(audio_path: Path, output_path: Optional[Path] = None) -> Path:
+        """
+        标准化音频文件：转换为 44100Hz 采样率、2通道立体声、192k 音频比特率
+
+        Args:
+            audio_path: 输入音频文件路径
+            output_path: 输出音频文件路径（如果为 None，则覆盖原文件）
+
+        Returns:
+            Path: 标准化后的音频文件路径
+        """
+        audio_path = Path(audio_path).resolve()
+
+        # 如果未指定输出路径，则覆盖原文件
+        if output_path is None:
+            output_path = audio_path
+        else:
+            output_path = Path(output_path).resolve()
+
+        ffmpeg_path = SystemUtils.get_ffmpeg_path()
+
+        # 标准参数
+        target_sample_rate = 44100  # 44.1kHz
+        target_channels = 2  # 立体声
+        target_bitrate = "192k"  # 192kbps
+
+        # 检查是否需要使用临时文件（输入和输出相同）
+        use_temp_file = (audio_path == output_path)
+        temp_output_path = None
+
+        if use_temp_file:
+            # 创建临时文件名
+            temp_output_path = output_path.parent / f"temp_{output_path.name}"
+
+        original_cwd = os.getcwd()
+
+        try:
+            output_dir = output_path.parent
+            os.chdir(output_dir)
+
+            audio_rel = os.path.relpath(audio_path, output_dir)
+            output_rel = temp_output_path.name if use_temp_file else output_path.name
+
+            audio_rel = audio_rel.replace('\\', '/')
+
+            if os.name == 'nt':  # Windows
+                # 构建FFmpeg命令
+                cmd_str = f'{ffmpeg_path} -y -i "{audio_rel}" -ar {target_sample_rate} -ac {target_channels} -b:a {target_bitrate} "{output_rel}"'
+
+                Logger.info(f"标准化音频: {audio_path.name}")
+                Logger.info(f"  采样率: {target_sample_rate}Hz, 声道: {target_channels}, 比特率: {target_bitrate}")
+                Logger.info(f"执行命令: {cmd_str}")
+
+                # 执行命令
+                encoding = 'gbk' if os.name == 'nt' else 'utf-8'
+                proc = subprocess.run(cmd_str, shell=True, capture_output=True, text=True, encoding=encoding, errors='ignore')
+                if proc.returncode != 0:
+                    raise RuntimeError(
+                        f"Command failed: {cmd_str}\n"
+                        f"stdout:\n{proc.stdout}\n"
+                        f"stderr:\n{proc.stderr}"
+                    )
+            else:
+                # Linux/Mac 命令
+                cmd = [
+                    ffmpeg_path, "-y", "-i", audio_rel,
+                    "-ar", str(target_sample_rate),
+                    "-ac", str(target_channels),
+                    "-b:a", target_bitrate,
+                    output_rel
+                ]
+
+                Logger.info(f"标准化音频: {audio_path.name}")
+                Logger.info(f"  采样率: {target_sample_rate}Hz, 声道: {target_channels}, 比特率: {target_bitrate}")
+                SystemUtils.run_cmd(cmd)
+
+            # 如果使用了临时文件，替换原文件
+            if use_temp_file and temp_output_path and temp_output_path.exists():
+                import shutil
+                shutil.move(str(temp_output_path), str(output_path))
+                Logger.info(f"替换原文件: {output_path}")
+
+            Logger.info(f"音频标准化成功: {output_path}")
+            return output_path
+
+        except Exception as e:
+            Logger.error(f"音频标准化失败: {e}")
+            # 清理临时文件
+            if temp_output_path and temp_output_path.exists():
+                try:
+                    temp_output_path.unlink()
+                    Logger.info(f"清理临时文件: {temp_output_path}")
+                except Exception as cleanup_error:
+                    Logger.warning(f"清理临时文件失败: {cleanup_error}")
             raise
         finally:
             os.chdir(original_cwd)
@@ -587,7 +712,7 @@ class MediaProcessor:
             probe_cmd = [ffmpeg_path, "-i", str(video_path), "-hide_banner"]
             # 在 Windows 系统上使用 GBK 编码，在其他系统上使用 UTF-8
             encoding = 'gbk' if os.name == 'nt' else 'utf-8'
-            probe_result = subprocess.run(probe_cmd, capture_output=True, text=True, encoding=encoding)
+            probe_result = subprocess.run(probe_cmd, capture_output=True, text=True, encoding=encoding, errors='ignore')
             has_audio = 'Audio:' in probe_result.stderr
 
             if extend_video:
@@ -595,17 +720,32 @@ class MediaProcessor:
                 if keep_original_audio and has_audio:
                     # 保留原音频并混合
                     Logger.info("保留原视频音频，与新音频混合")
-                    cmd = [
-                        ffmpeg_path, "-y", 
-                        "-stream_loop", "-1", "-i", video_rel,  # 无限循环视频
-                        "-i", audio_rel,
-                        "-filter_complex", f"[0:a][1:a]amix=inputs=2:duration=first:dropout_transition=2,volume={audio_volume}[aout]",
-                        "-map", "0:v:0", "-map", "[aout]",
-                        "-c:v", "copy", "-c:a", "aac",
-                        "-t", str(target_duration),  # 指定总时长
-                        "-avoid_negative_ts", "make_zero",  # 避免负时间戳
-                        output_rel
-                    ]
+                    # 只调整新音频的音量，然后混合
+                    if audio_volume != 1.0:
+                        cmd = [
+                            ffmpeg_path, "-y",
+                            "-stream_loop", "-1", "-i", video_rel,  # 无限循环视频
+                            "-i", audio_rel,
+                            "-filter_complex", f"[1:a]volume={audio_volume}[a1_vol];[0:a][a1_vol]amix=inputs=2:duration=first:dropout_transition=2[aout]",
+                            "-map", "0:v:0", "-map", "[aout]",
+                            "-c:v", "copy", "-c:a", "aac",
+                            "-t", str(target_duration),  # 指定总时长
+                            "-avoid_negative_ts", "make_zero",  # 避免负时间戳
+                            output_rel
+                        ]
+                        Logger.info(f"应用新音频音量调整: {audio_volume}x")
+                    else:
+                        cmd = [
+                            ffmpeg_path, "-y",
+                            "-stream_loop", "-1", "-i", video_rel,  # 无限循环视频
+                            "-i", audio_rel,
+                            "-filter_complex", f"[0:a][1:a]amix=inputs=2:duration=first:dropout_transition=2[aout]",
+                            "-map", "0:v:0", "-map", "[aout]",
+                            "-c:v", "copy", "-c:a", "aac",
+                            "-t", str(target_duration),  # 指定总时长
+                            "-avoid_negative_ts", "make_zero",  # 避免负时间戳
+                            output_rel
+                        ]
                 else:
                     # 替换原音频
                     if has_audio:
@@ -613,35 +753,46 @@ class MediaProcessor:
                     else:
                         Logger.info("原视频无音频，直接添加新音频")
                     cmd = [
-                        ffmpeg_path, "-y", 
+                        ffmpeg_path, "-y",
                         "-stream_loop", "-1", "-i", video_rel,  # 无限循环视频
                         "-i", audio_rel,
-                        "-c:v", "copy", "-c:a", "aac", 
+                        "-c:v", "copy", "-c:a", "aac",
                         "-map", "0:v:0", "-map", "1:a:0",
                         "-t", str(target_duration),  # 指定总时长
                         "-avoid_negative_ts", "make_zero",  # 避免负时间戳
                         output_rel
                     ]
-                    
+
                     # 如果音量不是1.0，添加音量滤镜
                     if audio_volume != 1.0:
                         cmd.insert(-1, "-filter:a")
                         cmd.insert(-1, f"volume={audio_volume}")
                         Logger.info(f"应用音频音量调整: {audio_volume}x")
-                
+
                 Logger.info(f"扩展视频到目标时长: {target_duration:.2f}秒")
             else:
                 # 标准合并，使用最短时长
                 if keep_original_audio and has_audio:
                     # 保留原音频并混合
                     Logger.info("保留原视频音频，与新音频混合")
-                    cmd = [
-                        ffmpeg_path, "-y", "-i", video_rel, "-i", audio_rel,
-                        "-filter_complex", f"[0:a][1:a]amix=inputs=2:duration=first:dropout_transition=2,volume={audio_volume}[aout]",
-                        "-map", "0:v:0", "-map", "[aout]",
-                        "-c:v", "copy", "-c:a", "aac",
-                        "-shortest", output_rel
-                    ]
+                    # 只调整新音频的音量，然后混合
+                    if audio_volume != 1.0:
+                        cmd = [
+                            ffmpeg_path, "-y", "-i", video_rel, "-i", audio_rel,
+                            "-filter_complex", f"[1:a]volume={audio_volume}[a1_vol];[0:a][a1_vol]amix=inputs=2:duration=first:dropout_transition=2[aout]",
+                            "-map", "0:v:0", "-map", "[aout]",
+                            "-c:v", "copy", "-c:a", "aac",
+                            "-shortest", output_rel
+                        ]
+                        Logger.info(f"应用新音频音量调整: {audio_volume}x")
+                    else:
+                        cmd = [
+                            ffmpeg_path, "-y", "-i", video_rel, "-i", audio_rel,
+                            "-filter_complex", f"[0:a][1:a]amix=inputs=2:duration=first:dropout_transition=2[aout]",
+                            "-map", "0:v:0", "-map", "[aout]",
+                            "-c:v", "copy", "-c:a", "aac",
+                            "-shortest", output_rel
+                        ]
                 else:
                     # 替换原音频
                     if has_audio:

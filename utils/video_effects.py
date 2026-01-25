@@ -406,7 +406,8 @@ class VideoEffectsProcessor:
         bg_color: tuple = None,
         stroke_enabled: bool = False,
         stroke_color: tuple = (0, 0, 0),
-        stroke_width: int = 2
+        stroke_width: int = 2,
+        debug_filename: str = "flower_text_pil_debug.png"
     ) -> np.ndarray:
         """
         使用Pillow创建渐变色文字图像
@@ -422,6 +423,7 @@ class VideoEffectsProcessor:
             stroke_enabled: 是否启用描边
             stroke_color: 描边颜色 (R, G, B)
             stroke_width: 描边宽度
+            debug_filename: 调试图像文件名（默认为flower_text_pil_debug.png）
 
         Returns:
             渐变色文字图像数组
@@ -557,7 +559,8 @@ class VideoEffectsProcessor:
                          bg_color: tuple = None,
                          stroke_enabled: bool = False,
                          stroke_color: tuple = (0, 0, 0),
-                         stroke_width: int = 2) -> np.ndarray:
+                         stroke_width: int = 2,
+                         debug_filename: str = "flower_text_pil_debug.png") -> np.ndarray:
         """
         使用Pillow创建文字图像
         Args:
@@ -569,6 +572,7 @@ class VideoEffectsProcessor:
             stroke_enabled: 是否启用描边
             stroke_color: 描边颜色 (R, G, B)
             stroke_width: 描边宽度
+            debug_filename: 调试图像文件名（默认为flower_text_pil_debug.png）
 
         Returns:
             文字图像数组
@@ -674,21 +678,8 @@ class VideoEffectsProcessor:
                 raise
 
             # 保存原始PIL图像用于调试（在颜色空间转换之前）
-            try:
-                debug_dir = Path(__file__).parent.parent / "debug"
-                debug_dir.mkdir(exist_ok=True)
-                debug_pil_path = debug_dir / "flower_text_pil_debug.png"
-                # 直接保存 PIL 图像，保留透明通道
-                img.save(debug_pil_path)
-                Logger.info(f"原始PIL图像已保存: {debug_pil_path}")
-
-                # 检查图像内容
-                img_array_check = np.array(img)
-                non_zero_pixels = np.count_nonzero(img_array_check[:, :, :3])
-                total_pixels = img_array_check.shape[0] * img_array_check.shape[1]
-                Logger.info(f"图像内容统计: 非零像素={non_zero_pixels}/{total_pixels} ({non_zero_pixels/total_pixels*100:.2f}%)")
-            except Exception as save_error:
-                Logger.warning(f"保存原始PIL图像失败: {save_error}")
+            # 注意：调试图像的保存现在由调用方（apply_video_effects）负责
+            # 这里不再保存，以避免保存到错误的位置
 
             # 转换为numpy数组
             img_array = np.array(img)
@@ -923,10 +914,10 @@ class VideoEffectsProcessor:
         if position == "半透明浮动":
             # 半透明浮动效果
             import math
-            # 水平浮动
-            x = int((w - ww) // 2 + math.sin(frame_index * 0.05) * (w - ww) // 3)
-            # 垂直浮动
-            y = int((h - wh) // 2 + math.cos(frame_index * 0.03) * (h - wh) // 4)
+            # 水平浮动（速度调慢一倍）
+            x = int((w - ww) // 2 + math.sin(frame_index * 0.025) * (w - ww) // 3)
+            # 垂直浮动（速度调慢一倍）
+            y = int((h - wh) // 2 + math.cos(frame_index * 0.015) * (h - wh) // 4)
         elif position == "斜向移动":
             # 斜向移动效果
             progress = (frame_index % 200) / 200.0  # 200帧一个循环
@@ -1081,7 +1072,8 @@ class VideoEffectsProcessor:
                         None,  # 透明背景
                         stroke_enabled,
                         stroke_color,
-                        stroke_width
+                        stroke_width,
+                        "flower_text_pil_debug.png"  # 花字调试文件名
                     )
                 else:
                     # 单色模式
@@ -1098,7 +1090,8 @@ class VideoEffectsProcessor:
                         None,  # 透明背景
                         stroke_enabled,
                         stroke_color,
-                        stroke_width
+                        stroke_width,
+                        "flower_text_pil_debug.png"  # 花字调试文件名
                     )
 
                 if flower_img is not None:
@@ -1106,8 +1099,8 @@ class VideoEffectsProcessor:
 
                     # 保存花字图像用于调试
                     try:
-                        debug_dir = Path(output_path).parent / "debug"
-                        debug_dir.mkdir(exist_ok=True)
+                        # 使用输出路径的父目录作为debug目录，这样会保存到任务目录
+                        debug_dir = Path(output_path).parent
                         debug_img_path = debug_dir / "flower_text_debug.png"
 
                         # 使用 PIL 保存以保留透明通道
@@ -1123,6 +1116,87 @@ class VideoEffectsProcessor:
                         Logger.info(f"花字调试图像已保存: {debug_img_path}")
                     except Exception as save_error:
                         Logger.warning(f"保存花字调试图像失败: {save_error}")
+                        import traceback
+                        Logger.error(traceback.format_exc())
+
+                    # 保存花字的原始PIL图像用于调试
+                    try:
+                        debug_dir = Path(output_path).parent
+                        debug_pil_path = debug_dir / "flower_text_pil_debug.png"
+
+                        # 重新创建花字的PIL图像用于调试
+                        raw_text_color = flower_config.get('color', (255, 255, 255))
+                        text_color = VideoEffectsProcessor.parse_color(raw_text_color)
+                        stroke_enabled = flower_config.get('stroke_enabled', False)
+                        raw_stroke_color = flower_config.get('stroke_color', (0, 0, 0))
+                        stroke_color = VideoEffectsProcessor.parse_color(raw_stroke_color)
+                        stroke_width = flower_config.get('stroke_width', 2)
+
+                        # 检查是否是渐变色模式
+                        color_mode = flower_config.get('color_mode', '单色')
+                        color_mode_map = {
+                            '单色': '单色',
+                            'solid': '单色',
+                            '渐变色': '渐变色',
+                            'gradient': '渐变色'
+                        }
+                        color_mode_normalized = color_mode_map.get(color_mode.lower() if isinstance(color_mode, str) else color_mode, '单色')
+
+                        if color_mode_normalized == '渐变色':
+                            # 渐变色模式
+                            gradient_type = flower_config.get('gradient_type', '水平渐变')
+                            gradient_type_map = {
+                                '水平渐变': 'horizontal',
+                                'horizontal': 'horizontal',
+                                '垂直渐变': 'vertical',
+                                'vertical': 'vertical',
+                                '对角渐变': 'diagonal',
+                                'diagonal': 'diagonal'
+                            }
+                            gradient_type_en = gradient_type_map.get(gradient_type.lower() if isinstance(gradient_type, str) else gradient_type, 'horizontal')
+                            raw_color_start = flower_config.get('color_start', (255, 0, 0))
+                            raw_color_end = flower_config.get('color_end', (0, 0, 255))
+                            color_start = VideoEffectsProcessor.parse_color(raw_color_start)
+                            color_end = VideoEffectsProcessor.parse_color(raw_color_end)
+
+                            flower_pil_img = VideoEffectsProcessor.create_gradient_text_image(
+                                flower_config['text'],
+                                flower_config['size'],
+                                flower_config['font'],
+                                gradient_type_en,
+                                color_start,
+                                color_end,
+                                None,
+                                stroke_enabled,
+                                stroke_color,
+                                stroke_width,
+                                "flower_text_pil_debug.png"
+                            )
+                        else:
+                            # 单色模式
+                            flower_pil_img = VideoEffectsProcessor.create_text_image(
+                                flower_config['text'],
+                                flower_config['size'],
+                                flower_config['font'],
+                                text_color,
+                                None,
+                                stroke_enabled,
+                                stroke_color,
+                                stroke_width,
+                                "flower_text_pil_debug.png"
+                            )
+
+                        if flower_pil_img.shape[2] == 4:  # BGRA
+                            flower_pil_rgba = cv2.cvtColor(flower_pil_img, cv2.COLOR_BGRA2RGBA)
+                            pil_img = Image.fromarray(flower_pil_rgba)
+                        else:  # BGR
+                            flower_pil_rgb = cv2.cvtColor(flower_pil_img, cv2.COLOR_BGR2RGB)
+                            pil_img = Image.fromarray(flower_pil_rgb)
+
+                        pil_img.save(debug_pil_path)
+                        Logger.info(f"花字原始PIL调试图像已保存: {debug_pil_path}")
+                    except Exception as save_error:
+                        Logger.warning(f"保存花字原始PIL调试图像失败: {save_error}")
                         import traceback
                         Logger.error(traceback.format_exc())
 
@@ -1189,8 +1263,41 @@ class VideoEffectsProcessor:
                     watermark_config['size'],
                     watermark_config['font'],
                     text_color,
-                    None  # 透明背景
+                    None,  # 透明背景
+                    debug_filename="watermark_text_pil_debug.png"  # 水印调试文件名
                 )
+
+                # 保存水印的原始PIL图像用于调试
+                try:
+                    debug_dir = Path(output_path).parent
+                    debug_pil_path = debug_dir / "watermark_text_pil_debug.png"
+
+                    # 重新创建水印的PIL图像用于调试
+                    watermark_pil_img = VideoEffectsProcessor.create_text_image(
+                        watermark_config['text'],
+                        watermark_config['size'],
+                        watermark_config['font'],
+                        text_color,
+                        None,
+                        False,
+                        (0, 0, 0),
+                        2,
+                        "watermark_text_pil_debug.png"
+                    )
+
+                    if watermark_pil_img.shape[2] == 4:  # BGRA
+                        watermark_pil_rgba = cv2.cvtColor(watermark_pil_img, cv2.COLOR_BGRA2RGBA)
+                        pil_img = Image.fromarray(watermark_pil_rgba)
+                    else:  # BGR
+                        watermark_pil_rgb = cv2.cvtColor(watermark_pil_img, cv2.COLOR_BGR2RGB)
+                        pil_img = Image.fromarray(watermark_pil_rgb)
+
+                    pil_img.save(debug_pil_path)
+                    Logger.info(f"水印原始PIL调试图像已保存: {debug_pil_path}")
+                except Exception as save_error:
+                    Logger.warning(f"保存水印原始PIL调试图像失败: {save_error}")
+                    import traceback
+                    Logger.error(traceback.format_exc())
 
             # 解析时机配置
             flower_start, flower_end = (0, 0)

@@ -1,0 +1,88 @@
+{
+  "2": {
+    "inputs": {
+      "ckpt_name": "rife47.pth",
+      "clear_cache_after_n_frames": 10,
+      "multiplier": 3,
+      "fast_mode": true,
+      "ensemble": true,
+      "scale_factor": 1,
+      "frames": [
+        "3",
+        0
+      ]
+    },
+    "class_type": "RIFE VFI",
+    "_meta": {
+      "title": "RIFE VFI (recommend rife47 and rife49)"
+    }
+  },
+  "3": {
+    "inputs": {
+      "video": "雷欧-audio.mp4",
+      "force_rate": 0,
+      "custom_width": 0,
+      "custom_height": 0,
+      "frame_load_cap": 0,
+      "skip_first_frames": 0,
+      "select_every_nth": 1,
+      "format": "AnimateDiff"
+    },
+    "class_type": "VHS_LoadVideo",
+    "_meta": {
+      "title": "Load Video (Upload) 🎥🅥🅗🅢"
+    }
+  },
+  "4": {
+    "inputs": {
+      "frame_rate": [
+        "5",
+        0
+      ],
+      "loop_count": 0,
+      "filename_prefix": "videoAudio",
+      "format": "video/h264-mp4",
+      "pix_fmt": "yuv420p",
+      "crf": 23,
+      "save_metadata": false,
+      "trim_to_audio": true,
+      "pingpong": true,
+      "save_output": true,
+      "images": [
+        "2",
+        0
+      ],
+      "audio": [
+        "6",
+        0
+      ]
+    },
+    "class_type": "VHS_VideoCombine",
+    "_meta": {
+      "title": "Video Combine 🎥🅥🅗🅢"
+    }
+  },
+  "5": {
+    "inputs": {
+      "video_info": [
+        "3",
+        3
+      ]
+    },
+    "class_type": "VHS_VideoInfo",
+    "_meta": {
+      "title": "Video Info 🎥🅥🅗🅢"
+    }
+  },
+  "6": {
+    "inputs": {
+      "audio": "tts_雷欧.mp3",
+      "start_time": 0,
+      "duration": 0
+    },
+    "class_type": "VHS_LoadAudioUpload",
+    "_meta": {
+      "title": "Load Audio (Upload)🎥🅥🅗🅢"
+    }
+  }
+}

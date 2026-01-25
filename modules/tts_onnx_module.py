@@ -299,6 +299,12 @@ class TTSOnnxModule:
 
             duration = len(audio) / float(self.sample_rate)
 
+            # 标准化音频：转换为 44100Hz 采样率、2通道立体声、192k 音频比特率
+            Logger.info("开始标准化音频参数...")
+            from utils.media_processor import MediaProcessor
+            MediaProcessor.normalize_audio(output_path)
+            Logger.info(f"音频标准化完成: {output_path}")
+
             Logger.info(f"TTS 合成完成: {output_path}, 时长: {duration:.2f}s")
 
             return {

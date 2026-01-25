@@ -581,7 +581,11 @@ class TaskHandlers:
                 audio_path = None
                 if add_audio:
                     audio_path = add_audio
-                
+
+                # 获取音频音量控制参数
+                audio_volume = params.get("audio_volume", 1.0)
+                keep_original_audio = params.get("keep_original_audio", True)
+
                 # 调用视频编辑模块
                 result = await video_editor_module.apply_video_effects(
                     input_type="path",
@@ -593,7 +597,9 @@ class TaskHandlers:
                     # 使用 task_id 生成文件名
                     out_basename=f"{task_id}_video_editor",
                     job_dir=output_dir,
-                    template_dir=params.get("template_dir")  # 传递模板目录
+                    template_dir=params.get("template_dir"),  # 传递模板目录
+                    audio_volume=audio_volume,  # 传递音频音量参数
+                    keep_original_audio=keep_original_audio  # 传递原音频保留参数
                 )
 
                 # 检查处理结果

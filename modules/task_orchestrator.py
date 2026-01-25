@@ -118,7 +118,7 @@ class TaskOrchestrator:
                         'video2',  # 添加 video2 参数，用于 video_transition 任务
                         'videos'   # 添加 videos 参数，用于 video_merge 任务
                     )
-                    
+
                     # 检查参数中的路径是否需要解析
                     for key, value in resolved_params.items():
                         # 检查参数名是否以路径相关的后缀结尾
@@ -127,6 +127,38 @@ class TaskOrchestrator:
                         if not is_path_param:
                             Logger.debug(f"跳过非路径参数: {key}")
                             continue
+
+                        # 检查是否是 URL 格式（http:// 或 https://）
+                        # URL 格式应该像绝对路径一样直接使用，跳过模板目录解析
+                        def is_url_string(s):
+                            """检查字符串是否为 URL"""
+                            if isinstance(s, str):
+                                return s.startswith(("http://", "https://"))
+                            return False
+
+                        # 处理数组类型的参数
+                        if isinstance(value, list):
+                            # 检查数组中是否包含 URL
+                            has_url = any(is_url_string(item) for item in value if isinstance(item, str))
+                            if has_url:
+                                Logger.debug(f"检测到 URL 格式参数（数组）: {key}，跳过模板目录解析")
+                                continue
+
+                        # 处理字符串类型的参数
+                        elif isinstance(value, str):
+                            # 检查是否是 URL
+                            if is_url_string(value):
+                                Logger.debug(f"检测到 URL 格式参数: {key}={value}，跳过模板目录解析")
+                                continue
+
+                            # 检查是否是包含换行符的多行字符串
+                            if '\n' in value:
+                                lines = [line.strip() for line in value.split('\n') if line.strip()]
+                                # 检查多行中是否包含 URL
+                                has_url = any(is_url_string(line) for line in lines)
+                                if has_url:
+                                    Logger.debug(f"检测到 URL 格式参数（多行）: {key}，跳过模板目录解析")
+                                    continue
 
                         # 检查是否是用户传入的参数（即是否在 parameters 字典中）
                         # 如果是用户传入的参数，则跳过模板目录的路径解析
@@ -151,8 +183,9 @@ class TaskOrchestrator:
                                         resolved_list.append(str(template_resource))
                                         Logger.debug(f"解析模板资源路径（数组）: {item} -> {template_resource}")
                                     else:
-                                        # 抛出异常，而不是只记录警告
-                                        raise FileNotFoundError(f"模板资源文件不存在: {template_resource}")
+                                        # 文件不存在，记录警告并使用原始路径
+                                        Logger.warning(f"模板资源文件不存在: {template_resource}，使用原始路径: {item}")
+                                        resolved_list.append(item)
                                 else:
                                     # 如果 item 不是字符串，或者已经是绝对路径，直接添加
                                     Logger.debug(f"直接添加数组元素: {item}")
@@ -178,8 +211,9 @@ class TaskOrchestrator:
                                             resolved_lines.append(str(template_resource))
                                             Logger.debug(f"解析模板资源路径（多行）: {line} -> {template_resource}")
                                         else:
-                                            # 抛出异常，而不是只记录警告
-                                            raise FileNotFoundError(f"模板资源文件不存在: {template_resource}")
+                                            # 文件不存在，记录警告并使用原始路径
+                                            Logger.warning(f"模板资源文件不存在: {template_resource}，使用原始路径: {line}")
+                                            resolved_lines.append(line)
                                 resolved_params[key] = '\n'.join(resolved_lines)
                             else:
                                 # 处理单行字符串
@@ -189,8 +223,9 @@ class TaskOrchestrator:
                                     resolved_params[key] = str(template_resource)
                                     Logger.info(f"解析模板资源路径: {value} -> {template_resource}")
                                 else:
-                                    # 抛出异常，而不是只记录警告
-                                    raise FileNotFoundError(f"模板资源文件不存在: {template_resource}")
+                                    # 文件不存在，记录警告并使用原始路径
+                                    Logger.warning(f"模板资源文件不存在: {template_resource}，使用原始路径: {value}")
+                                    # 保持原始值不变，让任务处理器有机会在其他位置查找文件
                 
                 # 执行任务
                 Logger.info(f"执行任务: {task['name']} ({task_id})")

@@ -774,6 +774,10 @@ def register_routes(app) -> None:
         watermark_end_time: str = Form("99:59:59"),
         watermark_style: str = Form("半透明浮动"),
         out_basename: str = Form(None),
+        # 音频音量控制
+        audio_volume: float = Form(1.0),
+        # 原音频保留配置
+        keep_original_audio: bool = Form(True),
         payload: Dict[str, Any] = Depends(verify_token)
     ) -> Dict[str, Any]:
         """
@@ -951,7 +955,9 @@ def register_routes(app) -> None:
                 video_config=video_config,
                 watermark_config=watermark_config,
                 out_basename=out_basename,
-                job_dir=job_dir  # 传递 job_dir，确保在同一个目录下处理
+                job_dir=job_dir,  # 传递 job_dir，确保在同一个目录下处理
+                audio_volume=audio_volume,  # 传递音频音量参数
+                keep_original_audio=keep_original_audio  # 传递原音频保留参数
             )
 
             # 检查结果

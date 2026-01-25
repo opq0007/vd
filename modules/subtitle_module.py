@@ -273,10 +273,15 @@ class SubtitleModule:
                         else:
                             # 自动计算倍数
                             speed_factor = audio_duration / video_duration
-                            Logger.info(f"自动计算语速调整倍数: {speed_factor}")
+                            Logger.info(f"自动计算语速调整倍数（原始）: {speed_factor}")
                         
                         # 限制倍数在合理范围内
                         speed_factor = max(0.5, min(2.0, speed_factor))
+                        
+                        # 保留3位小数，多余位数往前进1处理（向上取整到3位小数）
+                        import math
+                        speed_factor = math.ceil(speed_factor * 1000) / 1000
+                        Logger.info(f"语速调整倍数（处理后，保留3位小数）: {speed_factor:.3f}")
                         
                         # 调整音频语速
                         adjusted_audio_path = job_dir / f"{out_basename}_adjusted_audio.wav"

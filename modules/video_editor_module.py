@@ -40,7 +40,11 @@ class VideoEditorModule:
         # 任务目录配置（可选）
         job_dir: Optional[Path] = None,  # 可选的任务目录，如果提供则使用该目录
         # 模板目录配置（可选）
-        template_dir: Optional[str] = None  # 可选的模板目录，用于查找模板资源
+        template_dir: Optional[str] = None,  # 可选的模板目录，用于查找模板资源
+        # 音频音量控制配置
+        audio_volume: float = 1.0,  # 音频音量倍数（默认1.0，表示原音量）
+        # 原音频保留配置
+        keep_original_audio: bool = True  # 是否保留原视频音频（默认True，保留并混合；False则替换原音频）
     ) -> Dict[str, Any]:
         """
         应用视频效果
@@ -56,6 +60,8 @@ class VideoEditorModule:
             video_config: 插视频配置
             watermark_config: 水印配置
             out_basename: 输出文件名前缀
+            audio_volume: 音频音量倍数（默认1.0，表示原音量；0.5表示降低一半音量；2.0表示提高一倍音量）
+            keep_original_audio: 是否保留原视频音频（默认True，保留并混合；False则替换原音频）
 
         Returns:
             Dict[str, Any]: 视频编辑结果
@@ -130,7 +136,7 @@ class VideoEditorModule:
                 merged_video_path = job_dir / f"{out_basename}_merged{local_input.suffix}"
                 try:
                     from utils.media_processor import MediaProcessor
-                    MediaProcessor.merge_audio_video(local_input, audio_input, merged_video_path)
+                    MediaProcessor.merge_audio_video(local_input, audio_input, merged_video_path, audio_volume=audio_volume, keep_original_audio=keep_original_audio)
                     base_video = merged_video_path
                     Logger.info(f"音视频合并成功: {merged_video_path}")
                 except Exception as e:
@@ -191,8 +197,11 @@ class VideoEditorModule:
 
                                 # 检查原始视频是否有音频流
                                 probe_cmd = [ffmpeg_path, "-i", base_video_rel, "-hide_banner"]
-                                result = subprocess.run(probe_cmd, capture_output=True, text=True)
-                                has_audio = "Audio:" in result.stderr
+                                # 在 Windows 系统上使用 GBK 编码，在其他系统上使用 UTF-8
+                                encoding = 'gbk' if os.name == 'nt' else 'utf-8'
+                                result = subprocess.run(probe_cmd, capture_output=True, text=True, encoding=encoding, errors='ignore')
+                                # 检查 result.stderr 是否为 None
+                                has_audio = result.stderr is not None and "Audio:" in result.stderr
 
                                 if has_audio:
                                     # 有音频，合并音频和视频
