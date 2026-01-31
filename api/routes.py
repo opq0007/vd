@@ -12,7 +12,7 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 from config import config
-from api.auth import AuthService, verify_token
+from api.auth import AuthService, verify_token, verify_token_required
 from api.response_formatter import response_formatter
 from modules.whisper_service import whisper_service
 from modules.tts_onnx_module import tts_onnx_module

@@ -56,6 +56,8 @@ class TaskOrchestrator:
         Returns:
             执行结果
         """
+        import time
+        
         # 加载模板
         template = template_manager.get_template(template_name)
         if not template:
@@ -74,17 +76,24 @@ class TaskOrchestrator:
         
         # 执行任务
         task_outputs = {}
+        task_times = {}  # 新增：记录每个任务的执行时间
         total_tasks = len(tasks)
         completed_tasks = 0
         
         Logger.info(f"开始执行模板: {template_name}")
         Logger.info(f"总任务数: {total_tasks}")
         
+        # 记录总执行开始时间
+        template_start_time = time.time()
+        
         # 按拓扑顺序执行任务
         execution_order = self._topological_sort(task_graph)
         
         for task_id in execution_order:
             task = next(t for t in tasks if t["id"] == task_id)
+            
+            # 记录任务开始时间
+            task_start_time = time.time()
             
             try:
                 # 解析任务参数
@@ -243,6 +252,10 @@ class TaskOrchestrator:
                 
                 result = await self._execute_task(task, resolved_params)
                 
+                # 记录任务执行时间（以秒为单位，保留3位小数）
+                task_execution_time = time.time() - task_start_time
+                task_times[task_id] = round(task_execution_time, 3)
+                
                 # 保存任务输出
                 task_outputs[task_id] = result
                 
@@ -257,13 +270,18 @@ class TaskOrchestrator:
                         "progress": progress,
                         "completed": completed_tasks,
                         "total": total_tasks,
-                        "status": "completed"
+                        "status": "completed",
+                        "execution_time": task_execution_time  # 新增：执行时间
                     })
                 
-                Logger.info(f"任务完成: {task['name']} ({task_id}), 进度: {progress:.1%}")
+                Logger.info(f"任务完成: {task['name']} ({task_id}), 进度: {progress:.1%}, 耗时: {task_execution_time:.3f}秒")
                 
             except Exception as e:
-                Logger.error(f"任务失败: {task['name']} ({task_id}), 错误: {e}")
+                # 记录任务执行时间（即使失败也要记录）
+                task_execution_time = time.time() - task_start_time
+                task_times[task_id] = round(task_execution_time, 3)
+                
+                Logger.error(f"任务失败: {task['name']} ({task_id}), 错误: {e}, 耗时: {task_execution_time:.3f}秒")
                 
                 # 调用进度回调
                 if progress_callback:
@@ -274,18 +292,24 @@ class TaskOrchestrator:
                         "completed": completed_tasks,
                         "total": total_tasks,
                         "status": "failed",
-                        "error": str(e)
+                        "error": str(e),
+                        "execution_time": task_execution_time  # 新增：执行时间
                     })
                 
                 # 继续执行其他任务
                 task_outputs[task_id] = {"error": str(e)}
         
-        Logger.info(f"模板执行完成: {template_name}")
+        # 计算总执行时间
+        total_execution_time = round(time.time() - template_start_time, 3)
+        
+        Logger.info(f"模板执行完成: {template_name}, 总耗时: {total_execution_time:.3f}秒")
         
         return {
             "success": True,
             "template_name": template_name,
             "task_outputs": task_outputs,
+            "task_times": task_times,  # 新增：各任务执行时间
+            "total_execution_time": total_execution_time,  # 新增：总执行时间
             "total_tasks": total_tasks,
             "completed_tasks": completed_tasks
         }

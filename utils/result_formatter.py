@@ -140,6 +140,7 @@ class ResultFormatter:
         
         tasks = template.get("tasks", [])
         task_outputs = result.get("task_outputs", {})
+        task_times = result.get("task_times", {})  # 新增：获取任务执行时间
         
         for idx, task in enumerate(tasks, 1):
             task_id = task["id"]
@@ -184,6 +185,10 @@ class ResultFormatter:
             output_files = ResultFormatter.extract_output_files_from_task(task_output)
             task_result["output_files"] = output_files[:3]  # 最多显示3个文件
             
+            # 新增：添加执行时间（如果存在）
+            if task_id in task_times:
+                task_result["execution_time"] = task_times[task_id]
+            
             task_results.append(task_result)
         
         return task_results
@@ -226,6 +231,12 @@ class ResultFormatter:
             "error": result.get("error") if not result.get("success") else None
         }
         
+        # 新增：添加执行时间信息
+        if "total_execution_time" in result:
+            formatted_result["total_execution_time"] = result["total_execution_time"]
+        if "task_times" in result:
+            formatted_result["task_times"] = result["task_times"]
+        
         # 保留原始结果中的其他字段
         for key, value in result.items():
             if key not in formatted_result:
@@ -251,8 +262,10 @@ class ResultFormatter:
             return f"<div style='color: red;'>处理失败: {error_msg}</div>"
         
         task_outputs = result.get("task_outputs", {})
+        task_times = result.get("task_times", {})  # 新增：获取任务执行时间
         total_tasks = result.get("total_tasks", 0)
         completed_tasks = result.get("completed_tasks", 0)
+        total_execution_time = result.get("total_execution_time", 0)  # 新增：获取总执行时间
 
         # 重新构建任务结果列表以获取准确的状态统计
         from modules.template_manager import template_manager
@@ -284,6 +297,9 @@ class ResultFormatter:
         # 计算成功率，避免除零错误
         success_rate = (success_count / total_tasks * 100) if total_tasks > 0 else 0.0
         
+        # 新增：计算总执行时间统计
+        total_time_str = f"{total_execution_time:.3f}秒" if total_execution_time > 0 else "-"
+        
         html = f"""
         <div style="border: 1px solid #ddd; padding: 15px; border-radius: 5px; background-color: #f9f9f9;">
             <h4 style="margin-top: 0; color: #333;">📋 任务执行详情</h4>
@@ -292,7 +308,8 @@ class ResultFormatter:
                 <strong style="color: #4CAF50;">✅ 成功:</strong> {success_count} |
                 <strong style="color: #f44336;">❌ 失败:</strong> {failed_count} |
                 <strong style="color: #FF9800;">⏭️ 跳过:</strong> {skipped_count} |
-                <strong>成功率:</strong> {success_rate:.1f}%
+                <strong>成功率:</strong> {success_rate:.1f}% |
+                <strong style="color: #2196F3;">⏱️ 总耗时:</strong> {total_time_str}
             </p>
             <table style="width: 100%; border-collapse: collapse; font-size: 14px;">
                 <thead>
@@ -303,6 +320,7 @@ class ResultFormatter:
                         <th style="padding: 10px; text-align: left; border: 1px solid #ddd;">状态</th>
                         <th style="padding: 10px; text-align: left; border: 1px solid #ddd;">输出文件</th>
                         <th style="padding: 10px; text-align: left; border: 1px solid #ddd;">备注</th>
+                        <th style="padding: 10px; text-align: left; border: 1px solid #ddd;">耗时</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -320,6 +338,9 @@ class ResultFormatter:
                 
                 # 获取任务执行结果
                 task_output = task_outputs.get(task_id, {})
+                
+                # 新增：获取任务执行时间
+                task_time_str = f"{task_times.get(task_id, 0):.3f}秒" if task_id in task_times else "-"
                 
                 # 判断任务状态（优先检查 success 字段）
                 if task_output.get("success") is False:
@@ -359,6 +380,7 @@ class ResultFormatter:
                         <td style="padding: 8px; border: 1px solid #ddd; color: {status_color}; font-weight: bold;">{status}</td>
                         <td style="padding: 8px; border: 1px solid #ddd; font-size: 12px;">{output_files}</td>
                         <td style="padding: 8px; border: 1px solid #ddd; font-size: 12px;">{remark}</td>
+                        <td style="padding: 8px; border: 1px solid #ddd; font-size: 12px;">{task_time_str}</td>
                     </tr>
                 """
         

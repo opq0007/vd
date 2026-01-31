@@ -18,6 +18,9 @@ class Config:
     HOST = os.environ.get("HOST", "0.0.0.0")
     PORT = int(os.environ.get("PORT", 7860))
     ENABLE_GRADIO_UI = os.environ.get("ENABLE_GRADIO_UI", "true").lower() in ("true", "1", "yes")
+    
+    # Token校验控制（默认禁用，启用后所有API接口都需要token校验）
+    ENABLE_TOKEN_AUTH = os.environ.get("ENABLE_TOKEN_AUTH", "false").lower() in ("true", "1", "yes")
 
     # ==================== URL 配置 ====================
     BASE_HOST = os.environ.get("BASE_HOST", "127.0.0.1")
