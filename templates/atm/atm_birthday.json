@@ -163,7 +163,7 @@
       "params": {
         "input_videos":["out_1_${sub_character}.mp4","${task2.output}","out_3.mp4","${task3.output}","out_5.mp4","${task4.output}", "${task5.output}","${task6.output}"],
         "output_name": "final_video",
-        "delete_intermediate_videos": false
+        "delete_intermediate_videos": true
       },
       "depends_on": ["task1","task2","task3", "task4", "task5", "task6"]
     }

@@ -204,32 +204,49 @@ class VideoMergeModule:
         Logger.info(f"创建 concat 列表文件: {concat_list_file}")
 
         # 构建合并命令
-        # 注意：不使用 -c copy，因为FFmpeg concat demuxer在合并时可能重新计算音频比特率
-        # 即使所有视频参数一致，也可能导致音频比特率异常（如从192K变成3M）
-        # 同时，某些视频的实际帧率可能与声明的帧率不一致，导致合并后的视频帧率异常
-        # 因此明确指定编码参数，确保输出使用标准的音频和视频参数
-        # 使用 fps 滤镜而不是 -r 参数，避免帧丢失
-        cmd = [
-            ffmpeg_path, "-y",
-            "-f", "concat",
-            "-safe", "0",  # 允许使用任意路径
-            "-i", str(concat_list_file),
-            # 视频编码参数（确保帧率正确）
-            "-c:v", "libx264",  # 重新编码视频
-            "-preset", "fast",  # 编码速度
-            "-crf", "23",  # 视频质量
-            "-pix_fmt", "yuv420p",  # 像素格式
-            "-filter:v", "fps=25",  # 使用fps滤镜调整帧率，避免帧丢失
-            # 音频编码参数（确保音频比特率正确）
-            "-c:a", "aac",  # 音频重新编码为AAC
-            "-b:a", "192k",  # 标准音频比特率
-            "-ar", "44100",  # 标准采样率
-            "-ac", "2",  # 标准声道数
-            "-movflags", "+faststart",  # 优化MP4播放
-            str(output_path)
-        ]
+        # 检查是否所有视频的参数都完全一致
+        all_params_consistent = True
+        if videos_to_normalize:
+            # 有视频被标准化，说明参数不完全一致
+            all_params_consistent = False
+            Logger.info("存在参数不一致的视频，使用重新编码模式")
+        else:
+            Logger.info("所有视频参数一致，使用直接复制模式")
 
-        Logger.info(f"执行视频合并命令（重新编码视频和音频为标准参数）: {' '.join(cmd)}")
+        if all_params_consistent:
+            # 所有视频参数一致，使用直接复制模式（快速且无质量损失）
+            cmd = [
+                ffmpeg_path, "-y",
+                "-f", "concat",
+                "-safe", "0",  # 允许使用任意路径
+                "-i", str(concat_list_file),
+                "-c", "copy",  # 直接复制所有流
+                "-movflags", "+faststart",  # 优化MP4播放
+                str(output_path)
+            ]
+            Logger.info(f"执行视频合并命令（直接复制流）: {' '.join(cmd)}")
+        else:
+            # 存在参数不一致的视频，使用重新编码模式（确保输出标准化）
+            cmd = [
+                ffmpeg_path, "-y",
+                "-f", "concat",
+                "-safe", "0",  # 允许使用任意路径
+                "-i", str(concat_list_file),
+                # 视频编码参数（确保帧率正确）
+                "-c:v", "libx264",  # 重新编码视频
+                "-preset", "fast",  # 编码速度
+                "-crf", "23",  # 视频质量
+                "-pix_fmt", "yuv420p",  # 像素格式
+                "-filter:v", "fps=25",  # 使用fps滤镜调整帧率，避免帧丢失
+                # 音频编码参数（确保音频比特率正确）
+                "-c:a", "aac",  # 音频重新编码为AAC
+                "-b:a", "192k",  # 标准音频比特率
+                "-ar", "44100",  # 标准采样率
+                "-ac", "2",  # 标准声道数
+                "-movflags", "+faststart",  # 优化MP4播放
+                str(output_path)
+            ]
+            Logger.info(f"执行视频合并命令（重新编码为标准参数）: {' '.join(cmd)}")
 
         # 执行命令
         original_cwd = os.getcwd()
