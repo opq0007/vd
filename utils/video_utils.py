@@ -130,7 +130,7 @@ class VideoUtils:
             cmd = [
                 ffmpeg_path, "-y", "-i", str(input_path),
                 "-c:v", "libx264", "-preset", "fast", "-crf", "23",
-                "-c:a", "aac", "-b:a", "128k",
+                "-c:a", "aac", "-b:a", "192k",
                 "-movflags", "+faststart",
                 str(output_path)
             ]

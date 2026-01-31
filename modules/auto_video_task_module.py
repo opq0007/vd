@@ -29,6 +29,7 @@ class AutoVideoTaskModule:
         # LLM 配置
         llm_model: Optional[str] = None,
         llm_api_key: Optional[str] = None,
+        llm_base_url: Optional[str] = None,
         # ComfyUI 配置
         comfyui_server_url: Optional[str] = None,
         image_workflow_path: Optional[str] = None,
@@ -55,6 +56,7 @@ class AutoVideoTaskModule:
             fps: 帧率
             llm_model: LLM 模型名称
             llm_api_key: LLM API Key
+            llm_base_url: LLM API Base URL
             comfyui_server_url: ComfyUI 服务器地址
             image_workflow_path: 图片生成工作流路径
             video_workflow_path: 视频生成工作流路径
@@ -80,17 +82,23 @@ class AutoVideoTaskModule:
                 "video_size": video_size,
                 "duration": duration,
                 "fps": fps,
-                "llm_model": llm_model or config.ZHIPU_MODEL,
-                "llm_api_key": llm_api_key or config.ZHIPU_API_KEY,
+                "llm_model": llm_model or config.LLM_MODEL,
+                "llm_api_key": llm_api_key or config.LLM_API_KEY,
+                "llm_base_url": llm_base_url or config.LLM_BASE_URL,
                 "comfyui_server_url": comfyui_server_url or config.COMFYUI_SERVER_URL,
                 "image_workflow_path": image_workflow_path or "",
                 "video_workflow_path": video_workflow_path or "",
-                "tts_feat_id": tts_feat_id or "",
-                "tts_prompt_wav": tts_prompt_wav or "",
-                "tts_prompt_text": tts_prompt_text or "",
                 "background_music": background_music or "",
                 "background_music_volume": background_music_volume
             }
+
+            # 只有在用户明确提供了值时才添加这些参数，否则使用模板的默认值
+            if tts_feat_id is not None and tts_feat_id != "":
+                parameters["tts_feat_id"] = tts_feat_id
+            if tts_prompt_wav is not None and tts_prompt_wav != "":
+                parameters["tts_prompt_wav"] = tts_prompt_wav
+            if tts_prompt_text is not None and tts_prompt_text != "":
+                parameters["tts_prompt_text"] = tts_prompt_text
 
             Logger.info(f"开始执行AIGC全自动视频生成: {topic}")
             Logger.info(f"使用模板: {template_name}")
@@ -119,6 +127,9 @@ class AutoVideoTaskModule:
                     final_video = task_output["output_files"][0]
                     break
 
+            # 提取任务目录
+            job_dir = execution_result.get("job_dir", "")
+
             # 提取脚本数据
             script_data = None
             if "task_generate_script" in task_outputs:
@@ -141,6 +152,7 @@ class AutoVideoTaskModule:
                 "script": script_info,
                 "script_data": script_data,  # 保留原始脚本数据
                 "output_video": final_video,
+                "job_dir": job_dir,
                 "task_outputs": task_outputs
             }
 

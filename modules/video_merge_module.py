@@ -153,22 +153,39 @@ class VideoMergeModule:
 
         ffmpeg_path = SystemUtils.get_ffmpeg_path()
 
-        # 检查是否需要标准化视频
-        needs_normalization = False
+        # 检查每个视频是否需要标准化
+        normalized_paths = []
+        videos_to_normalize = []
+        videos_already_ok = []
+
         Logger.info("检查视频是否需要标准化...")
         for i, video_path in enumerate(video_paths):
-            if await self._needs_audio_normalization(video_path):
-                needs_normalization = True
+            needs_norm = await self._needs_normalization(video_path)
+            if needs_norm:
+                videos_to_normalize.append((i, video_path))
                 Logger.info(f"视频 {i+1}/{len(video_paths)} ({video_path.name}) 需要标准化")
-                break
             else:
+                videos_already_ok.append((i, video_path))
                 Logger.info(f"视频 {i+1}/{len(video_paths)} ({video_path.name}) 不需要标准化")
 
-        # 标准化所有视频的音频和视频参数（采样率、声道、分辨率、帧率、编码格式等）
-        if needs_normalization:
-            Logger.info("开始标准化视频参数（音频+视频）...")
-            normalized_paths = await self._normalize_video_audio(video_paths, output_path.parent)
-            Logger.info(f"视频标准化完成，共 {len(normalized_paths)} 个文件")
+        # 只对需要标准化的视频进行标准化
+        if videos_to_normalize:
+            Logger.info(f"开始标准化 {len(videos_to_normalize)} 个视频的参数...")
+            # 提取需要标准化的视频路径
+            paths_to_normalize = [vp for _, vp in videos_to_normalize]
+            normalized_files = await self._normalize_video_audio(paths_to_normalize, output_path.parent)
+            Logger.info(f"视频标准化完成，共 {len(normalized_files)} 个文件")
+
+            # 按照原始顺序重新组合视频列表
+            # 使用resolve后的绝对路径作为键，确保匹配正确
+            norm_dict = {str(vp.resolve()): normalized_files[i] for i, (_, vp) in enumerate(videos_to_normalize)}
+
+            for video_path in video_paths:
+                resolved_path = str(video_path.resolve())
+                if resolved_path in norm_dict:
+                    normalized_paths.append(norm_dict[resolved_path])
+                else:
+                    normalized_paths.append(video_path)
         else:
             Logger.info("所有视频参数已标准化，跳过标准化步骤")
             normalized_paths = video_paths
@@ -187,16 +204,32 @@ class VideoMergeModule:
         Logger.info(f"创建 concat 列表文件: {concat_list_file}")
 
         # 构建合并命令
+        # 注意：不使用 -c copy，因为FFmpeg concat demuxer在合并时可能重新计算音频比特率
+        # 即使所有视频参数一致，也可能导致音频比特率异常（如从192K变成3M）
+        # 同时，某些视频的实际帧率可能与声明的帧率不一致，导致合并后的视频帧率异常
+        # 因此明确指定编码参数，确保输出使用标准的音频和视频参数
+        # 使用 fps 滤镜而不是 -r 参数，避免帧丢失
         cmd = [
             ffmpeg_path, "-y",
             "-f", "concat",
             "-safe", "0",  # 允许使用任意路径
             "-i", str(concat_list_file),
-            "-c", "copy",  # 直接复制流，因为所有视频参数已经标准化
+            # 视频编码参数（确保帧率正确）
+            "-c:v", "libx264",  # 重新编码视频
+            "-preset", "fast",  # 编码速度
+            "-crf", "23",  # 视频质量
+            "-pix_fmt", "yuv420p",  # 像素格式
+            "-filter:v", "fps=25",  # 使用fps滤镜调整帧率，避免帧丢失
+            # 音频编码参数（确保音频比特率正确）
+            "-c:a", "aac",  # 音频重新编码为AAC
+            "-b:a", "192k",  # 标准音频比特率
+            "-ar", "44100",  # 标准采样率
+            "-ac", "2",  # 标准声道数
+            "-movflags", "+faststart",  # 优化MP4播放
             str(output_path)
         ]
 
-        Logger.info(f"执行视频合并命令（直接复制流）: {' '.join(cmd)}")
+        Logger.info(f"执行视频合并命令（重新编码视频和音频为标准参数）: {' '.join(cmd)}")
 
         # 执行命令
         original_cwd = os.getcwd()
@@ -303,9 +336,9 @@ class VideoMergeModule:
 
         return normalized_paths
 
-    async def _needs_audio_normalization(self, video_path: Path) -> bool:
+    async def _needs_normalization(self, video_path: Path) -> bool:
         """
-        检查视频是否需要音频标准化
+        检查视频是否需要标准化（音频和视频参数）
 
         Args:
             video_path: 视频文件路径
@@ -320,8 +353,9 @@ class VideoMergeModule:
         # 标准参数
         target_sample_rate = 44100
         target_channels = 2
+        target_fps = 25  # 标准帧率
 
-        # 使用 ffprobe 获取音频信息
+        # 使用 ffprobe 获取视频和音频信息
         cmd = [
             ffmpeg_path, "-i", str(video_path),
             "-f", "null", "-",  # 添加 null 输出，避免 FFmpeg 报错
@@ -329,20 +363,33 @@ class VideoMergeModule:
         ]
 
         try:
+            import re
+
             # 在 Windows 系统上使用 GBK 编码，在其他系统上使用 UTF-8
             encoding = 'gbk' if os.name == 'nt' else 'utf-8'
             result = SystemUtils.run_cmd(cmd, capture_output=True, text=True, encoding=encoding)
 
-            # 检查音频流
+            # 检查视频流和音频流
+            has_video = False
             has_audio = False
+            fps = None
             sample_rate = None
             channels = None
+            audio_bitrate = None
 
             for line in result.get('stderr', '').split('\n'):
+                # 检查视频流
+                if 'Video:' in line:
+                    has_video = True
+                    # 解析帧率
+                    fps_match = re.search(r'(\d+(?:\.\d+)?)\s*fps', line)
+                    if fps_match:
+                        fps = float(fps_match.group(1))
+
+                # 检查音频流
                 if 'Audio:' in line:
                     has_audio = True
                     # 解析采样率
-                    import re
                     rate_match = re.search(r'(\d+) Hz', line)
                     if rate_match:
                         sample_rate = int(rate_match.group(1))
@@ -358,25 +405,43 @@ class VideoMergeModule:
                         if channel_match:
                             channels = int(channel_match.group(1))
 
-                    break
+                    # 解析音频比特率（可能包含kbps或b/s）
+                    bitrate_match = re.search(r'(\d+)\s*(?:kbps|b/s|bits/s)', line)
+                    if bitrate_match:
+                        audio_bitrate = int(bitrate_match.group(1))
+                        # 如果单位是kbps，转换为b/s
+                        if 'kbps' in line.lower():
+                            audio_bitrate = audio_bitrate * 1000
 
-            # 如果没有音频流，不需要标准化
-            if not has_audio:
-                return False
+            # 检查视频帧率
+            if has_video and fps:
+                # 允许小的浮点误差
+                if abs(fps - target_fps) > 0.1:
+                    Logger.info(f"帧率不匹配: {fps} fps (目标: {target_fps} fps)")
+                    return True
 
-            # 检查是否需要标准化
-            if sample_rate and sample_rate != target_sample_rate:
-                Logger.info(f"采样率不匹配: {sample_rate} Hz (目标: {target_sample_rate} Hz)")
-                return True
+            # 检查音频参数
+            if has_audio:
+                if sample_rate and sample_rate != target_sample_rate:
+                    Logger.info(f"采样率不匹配: {sample_rate} Hz (目标: {target_sample_rate} Hz)")
+                    return True
 
-            if channels and channels != target_channels:
-                Logger.info(f"声道数不匹配: {channels} (目标: {target_channels})")
-                return True
+                if channels and channels != target_channels:
+                    Logger.info(f"声道数不匹配: {channels} (目标: {target_channels})")
+                    return True
+
+                # 检查音频比特率（允许±10%的误差）
+                target_bitrate = 192000  # 192K b/s
+                if audio_bitrate:
+                    bitrate_diff_ratio = abs(audio_bitrate - target_bitrate) / target_bitrate
+                    if bitrate_diff_ratio > 0.15:  # 超过15%误差
+                        Logger.info(f"音频比特率不匹配: {audio_bitrate/1000:.0f}kbps (目标: 192kbps)")
+                        return True
 
             return False
 
         except Exception as e:
-            Logger.warning(f"检查音频标准化需求时出错: {e}")
+            Logger.warning(f"检查标准化需求时出错: {e}")
             # 出错时保守处理，进行标准化
             return True
 

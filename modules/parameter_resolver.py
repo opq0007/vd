@@ -122,69 +122,126 @@ class ParameterResolver:
                   task_outputs: Dict[str, Any]) -> str:
         """
         根据路径获取值
-        
+
         Args:
             path: 参数路径（如：username 或 task.output 或 task.output[0]）
             parameters: 参数值字典
             task_outputs: 任务输出字典
-            
+
         Returns:
             值字符串
         """
         # 分割路径
         parts = path.split('.')
-        
+
         # 检查是否是任务输出引用
         if len(parts) >= 2 and parts[0] in task_outputs:
             task_id = parts[0]
             output_key = '.'.join(parts[1:])
-            
+
             task_output = task_outputs[task_id]
-            
+
             # 检查任务是否失败
             if isinstance(task_output, dict) and "error" in task_output:
                 Logger.error(f"任务 {task_id} 失败，无法获取输出: {task_output['error']}")
                 return ""  # 返回空字符串，避免后续任务崩溃
-            
-            if isinstance(task_output, dict):
-                value = task_output.get(output_key, '')
-                if not value and output_key == "output":
-                    Logger.warning(f"任务 {task_id} 的 output 字段为空，task_output={task_output}")
-            else:
-                value = str(task_output)
-            
-            # 处理数组索引（如 output[0]）
+
+            # 检查是否包含数组索引（如 output[0]）
             if '[' in output_key and output_key.endswith(']'):
                 try:
-                    # 提取数组索引
-                    key_without_index = output_key.split('[')[0]
-                    index_str = output_key.split('[')[1].rstrip(']')
-                    index = int(index_str)
+                    # 分离键名和索引
+                    # 支持两种格式：
+                    # 1. task.output[0] -> parts[1:] = ['output[0]']
+                    # 2. task.data.items[0] -> parts[1:] = ['data', 'items[0]']
 
-                    # 获取数组值
-                    if isinstance(task_output, dict):
-                        array_value = task_output.get(key_without_index, [])
-                    else:
-                        array_value = task_output
+                    # 提取数组索引信息
+                    def extract_array_index(key_part):
+                        """从键中提取数组索引，返回 (clean_key, index_str)"""
+                        if '[' in key_part and key_part.endswith(']'):
+                            bracket_start = key_part.index('[')
+                            clean_key = key_part[:bracket_start]
+                            index_str = key_part[bracket_start + 1:-1]  # 去掉方括号
+                            return clean_key, index_str
+                        return None, None
 
-                    if isinstance(array_value, list):
-                        if len(array_value) == 0:
-                            Logger.warning(f"数组为空: {task_id}.{output_key}")
-                            value = ""
-                        else:
-                            # 使用取模运算处理索引越界
-                            actual_index = index % len(array_value)
-                            value = array_value[actual_index]  # 保持原始类型
-                            if index != actual_index:
-                                Logger.info(f"数组索引 {index} 越界，使用取模后的索引 {actual_index}: {task_id}.{output_key} = {value}")
+                    # 处理每个路径部分
+                    value = task_output
+                    index_to_apply = None  # 记录需要应用的索引
+
+                    for i, part in enumerate(parts[1:]):
+                        # 检查是否包含数组索引
+                        clean_key, index_str = extract_array_index(part)
+
+                        if clean_key is not None:
+                            # 这部分包含数组索引
+                            if isinstance(value, dict):
+                                # 先获取数组
+                                array_value = value.get(clean_key, [])
+                                value = array_value
+                            elif isinstance(value, list) and i > 0:
+                                # 如果value已经是列表，可能是在处理数组元素
+                                value = value
                             else:
-                                Logger.info(f"获取数组索引值: {task_id}.{output_key} = {value}")
-                    else:
-                        Logger.warning(f"不是数组类型: {task_id}.{output_key}, 类型: {type(array_value)}")
-                        value = ""
-                except (ValueError, IndexError) as e:
-                    Logger.warning(f"解析数组索引失败: {task_id}.{output_key}, 错误: {e}")
-                    value = ""
+                                Logger.warning(f"任务 {task_id} 的路径 {output_key} 在键 {part} 处无法获取数组")
+                                return ""
+
+                            # 保存索引，稍后应用
+                            index_to_apply = index_str
+                        else:
+                            # 普通键，直接访问
+                            if isinstance(value, dict):
+                                value = value.get(part)
+                            else:
+                                Logger.warning(f"任务 {task_id} 的路径 {output_key} 在键 {part} 处不是字典类型")
+                                return ""
+
+                            if value is None:
+                                Logger.warning(f"任务 {task_id} 的路径 {output_key} 在键 {part} 处为空")
+                                return ""
+
+                    # 应用数组索引
+                    if index_to_apply is not None and isinstance(value, list):
+                        try:
+                            index = int(index_to_apply)
+                            if len(value) == 0:
+                                Logger.warning(f"数组为空: {task_id}.{output_key}")
+                                return ""
+                            else:
+                                # 使用取模运算处理索引越界
+                                actual_index = index % len(value)
+                                value = value[actual_index]
+                                if index != actual_index:
+                                    Logger.info(f"数组索引 {index} 越界，使用取模后的索引 {actual_index}: {task_id}.{output_key} = {value}")
+                                else:
+                                    Logger.info(f"获取数组索引值: {task_id}.{output_key} = {value}")
+                        except (ValueError, IndexError) as e:
+                            Logger.warning(f"解析数组索引失败: {task_id}.{output_key}, 错误: {e}")
+                            return ""
+                    elif index_to_apply is not None:
+                        Logger.warning(f"期望数组类型但得到: {task_id}.{output_key}, 类型: {type(value)}")
+                        return ""
+
+                except Exception as e:
+                    Logger.warning(f"解析路径失败: {task_id}.{output_key}, 错误: {e}")
+                    return ""
+            else:
+                # 普通嵌套路径访问（如 output.full_text）
+                if isinstance(task_output, dict):
+                    value = task_output
+                    for key in parts[1:]:
+                        if isinstance(value, dict):
+                            value = value.get(key)
+                            if value is None:
+                                Logger.warning(f"任务 {task_id} 的路径 {output_key} 不存在，在键 {key} 处中断")
+                                return ""
+                        else:
+                            Logger.warning(f"任务 {task_id} 的路径 {output_key} 在键 {key} 处不是字典类型")
+                            return ""
+
+                    if value is None or value == '':
+                        Logger.warning(f"任务 {task_id} 的路径 {output_key} 为空，task_output={task_output}")
+                else:
+                    value = str(task_output)
 
             # 如果值是列表或字典，保持原始类型
             if isinstance(value, (list, dict)):
@@ -192,14 +249,14 @@ class ParameterResolver:
                 return value
 
             return str(value)
-        
+
         # 否则从参数中获取
         value = parameters.get(path, '')
-        
+
         # 如果值是列表或字典，直接返回（保持原始类型）
         if isinstance(value, (list, dict)):
             return value
-        
+
         # 其他类型转换为字符串
         return str(value)
     

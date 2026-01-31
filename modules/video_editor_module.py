@@ -209,10 +209,10 @@ class VideoEditorModule:
                                         ffmpeg_path, "-y",
                                         "-i", base_video_rel,
                                         "-i", temp_video_rel,
-                                        "-map", "0:a:0",
-                                        "-map", "1:v:0",
-                                        "-c:a", "copy",
-                                        "-c:v", "copy",
+                                        "-map", "1:v:0",          # 先映射视频流（输入1）
+                                        "-map", "0:a:0",          # 后映射音频流（输入0）
+                                        "-c:v", "copy",          # 视频直接复制
+                                        "-c:a", "copy",          # 音频直接复制
                                         output_rel
                                     ]
                                     SystemUtils.run_cmd(cmd)

@@ -89,12 +89,29 @@ class Config:
     LOG_LEVEL = os.environ.get("LOG_LEVEL", "INFO")
     LOG_FORMAT = '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 
-    # ==================== 智谱 AI 配置 ====================
-    ZHIPU_API_KEY = os.environ.get("ZHIPU_API_KEY", "")  # 智谱 AI API Key
-    ZHIPU_API_URL = "https://open.bigmodel.cn/api/paas/v4/chat/completions"
-    ZHIPU_MODEL = os.environ.get("ZHIPU_MODEL", "glm-4.5-flash")  # 默认使用 glm-4.5-flash 模型
-    ZHIPU_TEMPERATURE = 0.3  # 温度参数，越低越确定
-    ZHIPU_MAX_TOKENS = 8000  # 最大 token 数
+    # ==================== LLM 配置 ====================
+    # 通用 LLM 配置（支持 OpenAI 兼容接口）
+    LLM_API_KEY = os.environ.get("LLM_API_KEY", "")
+    LLM_BASE_URL = os.environ.get("LLM_BASE_URL", "https://open.bigmodel.cn/api/paas/v4/chat/completions")
+    LLM_MODEL = os.environ.get("LLM_MODEL", "glm-4.7")
+    LLM_TEMPERATURE = 0.3
+    LLM_MAX_TOKENS = 8000
+
+    # 向后兼容：智谱 AI 配置（如果未设置 LLM_*，则使用 ZHIPU_* 作为备选）
+    if not LLM_API_KEY:
+        LLM_API_KEY = os.environ.get("ZHIPU_API_KEY", "")
+    if "open.bigmodel.cn" in LLM_BASE_URL and not os.environ.get("LLM_BASE_URL"):
+        # 默认值保持智谱
+        LLM_BASE_URL = "https://open.bigmodel.cn/api/paas/v4/chat/completions"
+    if LLM_MODEL == "glm-4.5-flash" and not os.environ.get("LLM_MODEL"):
+        LLM_MODEL = os.environ.get("ZHIPU_MODEL", "glm-4.5-flash")
+
+    # 保留旧配置以供参考（废弃但保留兼容性）
+    ZHIPU_API_KEY = LLM_API_KEY  # 兼容性：指向 LLM_API_KEY
+    ZHIPU_API_URL = LLM_BASE_URL  # 兼容性：指向 LLM_BASE_URL
+    ZHIPU_MODEL = LLM_MODEL  # 兼容性：指向 LLM_MODEL
+    ZHIPU_TEMPERATURE = LLM_TEMPERATURE
+    ZHIPU_MAX_TOKENS = LLM_MAX_TOKENS
 
     # ==================== 文件持久化配置 ====================
     # HuggingFace Token - 从 https://huggingface.co/settings/tokens 获取

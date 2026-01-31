@@ -1,7 +1,8 @@
 """
 字幕纠错工具类
 
-使用智谱 AI 模型对生成的字幕内容进行智能纠错。
+使用 LLM 大模型对生成的字幕内容进行智能纠错。
+支持 OpenAI 兼容的 API 接口（如智谱 AI、通义千问等）。
 """
 
 import json
@@ -24,19 +25,27 @@ class SubtitleSegment:
 class LLMCorrector:
     """基于 LLM 的字幕纠错器"""
 
-    def __init__(self):
-        self.api_key = config.ZHIPU_API_KEY
-        self.api_url = config.ZHIPU_API_URL
-        self.model = config.ZHIPU_MODEL
-        self.temperature = config.ZHIPU_TEMPERATURE
-        self.max_tokens = config.ZHIPU_MAX_TOKENS
+    def __init__(self, api_key: Optional[str] = None, base_url: Optional[str] = None, model: Optional[str] = None):
+        """
+        初始化 LLM 纠错器
+
+        Args:
+            api_key: API Key，如果为空则使用配置中的默认值
+            base_url: API Base URL，如果为空则使用配置中的默认值
+            model: 模型名称，如果为空则使用配置中的默认值
+        """
+        self.api_key = api_key or config.LLM_API_KEY
+        self.api_url = base_url or config.LLM_BASE_URL
+        self.model = model or config.LLM_MODEL
+        self.temperature = config.LLM_TEMPERATURE
+        self.max_tokens = config.LLM_MAX_TOKENS
 
         if not self.api_key:
-            Logger.warning("智谱 AI API Key 未配置，字幕纠错功能将不可用")
+            Logger.warning("LLM API Key 未配置，字幕纠错功能将不可用")
 
     async def _call_llm(self, messages: List[Dict[str, str]]) -> Optional[str]:
         """
-        调用智谱 AI API
+        调用 LLM API（OpenAI 兼容接口）
 
         Args:
             messages: 消息列表
@@ -45,7 +54,7 @@ class LLMCorrector:
             Optional[str]: API 返回的文本内容
         """
         if not self.api_key:
-            raise ValueError("智谱 AI API Key 未配置")
+            raise ValueError("LLM API Key 未配置")
 
         headers = {
             "Content-Type": "application/json",
@@ -61,7 +70,7 @@ class LLMCorrector:
         }
 
         try:
-            Logger.info(f"调用智谱 AI API: {self.model}")
+            Logger.info(f"调用 LLM API: {self.model} ({self.api_url})")
             import aiohttp
             async with aiohttp.ClientSession() as session:
                 async with session.post(
@@ -74,18 +83,19 @@ class LLMCorrector:
                     result = await response.json()
                     content = result.get("choices", [{}])[0].get("message", {}).get("content", "")
 
-                    Logger.info(f"智谱 AI API 调用成功，返回 {len(content)} 字符")
+                    Logger.info(f"LLM API 调用成功，返回 {len(content)} 字符")
                     return content
 
         except Exception as e:
-            Logger.error(f"智谱 AI API 调用失败: {e}")
+            Logger.error(f"LLM API 调用失败: {e}")
             return None
 
     async def call_llm(
         self,
         prompt: str,
         model: Optional[str] = None,
-        api_key: Optional[str] = None
+        api_key: Optional[str] = None,
+        base_url: Optional[str] = None
     ) -> Optional[str]:
         """
         调用 LLM 生成响应
@@ -94,6 +104,7 @@ class LLMCorrector:
             prompt: 提示词
             model: 模型名称（可选，使用配置中的默认值）
             api_key: API Key（可选，使用配置中的默认值）
+            base_url: API Base URL（可选，使用配置中的默认值）
 
         Returns:
             Optional[str]: LLM 返回的文本内容
@@ -101,11 +112,14 @@ class LLMCorrector:
         # 临时覆盖配置
         original_api_key = self.api_key
         original_model = self.model
+        original_api_url = self.api_url
 
         if api_key:
             self.api_key = api_key
         if model:
             self.model = model
+        if base_url:
+            self.api_url = base_url
 
         try:
             messages = [
@@ -117,6 +131,7 @@ class LLMCorrector:
             # 恢复原始配置
             self.api_key = original_api_key
             self.model = original_model
+            self.api_url = original_api_url
 
     async def correct_subtitle_text(
         self,
@@ -134,7 +149,7 @@ class LLMCorrector:
             Optional[str]: 纠正后的字幕文本
         """
         if not self.api_key:
-            Logger.warning("智谱 AI API Key 未配置，跳过字幕纠错")
+            Logger.warning("LLM API Key 未配置，跳过字幕纠错")
             return subtitle_text
 
         if not reference_text or not reference_text.strip():

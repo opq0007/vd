@@ -198,6 +198,10 @@ class TaskHandlers:
                 reference_text = params.get("reference_text", "")
                 task_id = params.get("task_id", "subtitle")
 
+                # 获取音频音量控制参数
+                audio_volume = params.get("audio_volume", 1.0)
+                keep_original_audio = params.get("keep_original_audio", True)
+
                 # 至少需要一个输入（视频或音频）
                 if not video_input and not audio_input and not subtitle_input:
                     raise ValueError("缺少输入：需要提供视频、音频或字幕文件")
@@ -236,6 +240,9 @@ class TaskHandlers:
                     # 默认开启字幕显示后处理
                     "max_chars_per_line": params.get("max_chars_per_line", 20),
                     "max_lines_per_segment": params.get("max_lines_per_segment", 2),
+                    # 音频音量控制参数
+                    "audio_volume": audio_volume,
+                    "keep_original_audio": keep_original_audio,
                     # 任务目录
                     "job_dir": output_dir,
                     # 模板目录
@@ -1012,15 +1019,24 @@ class TaskHandlers:
                 import json
                 import re
 
-                llm_corrector = LLMCorrector()
+                # 获取 LLM 配置参数
+                # 参数优先级：页面传入参数 > config 配置
+                llm_api_key = params.get("llm_api_key") or config.LLM_API_KEY
+                llm_base_url = params.get("llm_base_url") or config.LLM_BASE_URL
+                llm_model = params.get("llm_model") or config.LLM_MODEL
+
+                if not llm_api_key:
+                    raise ValueError("请配置 LLM API Key。可以通过以下方式配置：\n1. 在 config.py 中设置 LLM_API_KEY\n2. 设置环境变量: set LLM_API_KEY=你的API_KEY\n3. 或在任务参数中传入 llm_api_key")
+
+                # 创建 LLM 纠错器实例（传入参数）
+                llm_corrector = LLMCorrector(
+                    api_key=llm_api_key,
+                    base_url=llm_base_url,
+                    model=llm_model
+                )
 
                 topic = params.get("topic", "")
                 duration = params.get("duration", 60)
-                llm_model = params.get("llm_model", config.ZHIPU_MODEL)
-                llm_api_key = params.get("llm_api_key", config.ZHIPU_API_KEY)
-
-                if not llm_api_key:
-                    raise ValueError("请配置 LLM API Key")
 
                 # 构建提示词
                 prompt = f"""请根据以下主题，生成一个短视频文案。
@@ -1058,11 +1074,7 @@ class TaskHandlers:
 请直接返回 JSON，不要有其他内容。"""
 
                 # 调用 LLM
-                response = await llm_corrector.call_llm(
-                    prompt=prompt,
-                    model=llm_model,
-                    api_key=llm_api_key
-                )
+                response = await llm_corrector.call_llm(prompt=prompt)
 
                 if not response:
                     raise ValueError("LLM API 调用失败")
