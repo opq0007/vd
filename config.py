@@ -128,6 +128,20 @@ class Config:
     # ComfyUI 工作流执行超时时间（秒）
     COMFYUI_TIMEOUT = int(os.environ.get("COMFYUI_TIMEOUT", "300"))
 
+    # ==================== 邮件发送配置 ====================
+    # SMTP 服务器配置
+    # 注意：QQ邮箱使用授权码登录，不是QQ密码
+    # 授权码获取方式：QQ邮箱 -> 设置 -> 账户 -> POP3/SMTP服务 -> 生成授权码
+    EMAIL_SMTP_HOST = os.environ.get("EMAIL_SMTP_HOST", "smtp.qq.com")
+    EMAIL_SMTP_PORT = int(os.environ.get("EMAIL_SMTP_PORT", "465"))  # 465(SSL) 或 587(STARTTLS)
+    EMAIL_SMTP_USE_TLS = os.environ.get("EMAIL_SMTP_USE_TLS", "true").lower() in ("true", "1", "yes")
+    # 发件人邮箱配置
+    EMAIL_FROM_ADDRESS = os.environ.get("EMAIL_FROM_ADDRESS", "")  # 完整的QQ邮箱地址，如 123456@qq.com
+    EMAIL_FROM_PASSWORD = os.environ.get("EMAIL_FROM_PASSWORD", "")  # 授权码，不是QQ密码
+    EMAIL_FROM_NAME = os.environ.get("EMAIL_FROM_NAME", "整合版 Whisper 服务")
+    # 邮件发送超时时间（秒）
+    EMAIL_TIMEOUT = int(os.environ.get("EMAIL_TIMEOUT", "300"))
+
     @classmethod
     def init_directories(cls):
         """初始化必要的目录"""

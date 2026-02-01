@@ -20,6 +20,7 @@ from modules.subtitle_module import subtitle_module
 from modules.transition_module import transition_module
 from modules.video_editor_module import video_editor_module
 from modules.image_processing_module import image_processing_module
+from modules.email_module import email_module
 from utils.logger import Logger
 from utils.media_processor import MediaProcessor
 import os
@@ -3124,6 +3125,112 @@ def register_routes(app) -> None:
 
         except Exception as e:
             return response_formatter.wrap_exception(e, "发送HTTP请求失败")
+
+    # ==================== 邮件发送 ====================
+    @api_router.post("/email/send")
+    async def send_email(
+        to_address: str = Form(...),
+        subject: str = Form(...),
+        content: str = Form(...),
+        content_type: str = Form("plain"),
+        attachment_mode: str = Form("upload"),
+        attachment_files: list[UploadFile] = None,
+        attachment_paths: str = Form(None),
+        payload: Dict[str, Any] = Depends(verify_token)
+    ) -> Dict[str, Any]:
+        """
+        发送邮件
+
+        Args:
+            to_address: 收件人邮箱地址
+            subject: 邮件主题
+            content: 邮件内容
+            content_type: 内容类型（plain 或 html）
+            attachment_mode: 附件模式（upload 或 path）
+            attachment_files: 上传的附件文件列表（attachment_mode=upload时使用）
+            attachment_paths: 附件文件路径列表，多行文本，每行一个路径（attachment_mode=path时使用）
+            payload: 认证载荷
+
+        Returns:
+            Dict[str, Any]: 发送结果
+        """
+        try:
+            from utils.file_utils import FileUtils
+            job_dir = FileUtils.create_job_dir()
+
+            # 处理附件
+            attachments = None
+            if attachment_mode == "upload":
+                # 上传模式：处理上传的文件
+                attachment_path_list = []
+                if attachment_files:
+                    for attachment in attachment_files:
+                        if attachment:
+                            attachment_path = job_dir / attachment.filename
+                            with open(attachment_path, "wb") as f:
+                                f.write(await attachment.read())
+                            attachment_path_list.append(str(attachment_path))
+                attachments = {"mode": "upload", "files": attachment_path_list}
+            elif attachment_mode == "path":
+                # 路径模式：解析路径列表
+                attachment_path_list = []
+                if attachment_paths:
+                    lines = attachment_paths.strip().split('\n')
+                    for line in lines:
+                        line = line.strip()
+                        if line:
+                            attachment_path_list.append(line)
+                attachments = {"mode": "path", "files": attachment_path_list}
+
+            # 发送邮件
+            success, message = email_module.send_email(
+                to_address=to_address,
+                subject=subject,
+                content=content,
+                content_type=content_type,
+                attachments=attachments
+            )
+
+            if success:
+                return response_formatter.success(
+                    data={"message": message},
+                    message="邮件发送成功"
+                )
+            else:
+                return response_formatter.error(
+                    message=message,
+                    error_code="EMAIL_SEND_FAILED"
+                )
+        except Exception as e:
+            return response_formatter.wrap_exception(e, "发送邮件失败")
+
+    @api_router.post("/email/test_connection")
+    async def test_email_connection(
+        payload: Dict[str, Any] = Depends(verify_token)
+    ) -> Dict[str, Any]:
+        """
+        测试邮件SMTP连接
+
+        Args:
+            payload: 认证载荷
+
+        Returns:
+            Dict[str, Any]: 测试结果
+        """
+        try:
+            success, message = email_module.test_connection()
+            if success:
+                return response_formatter.success(
+                    data={"message": message},
+                    message="SMTP连接测试成功"
+                )
+            else:
+                return response_formatter.error(
+                    message=message,
+                    error_code="EMAIL_CONNECTION_TEST_FAILED"
+                )
+        except Exception as e:
+            return response_formatter.wrap_exception(e, "SMTP连接测试失败")
 
     # 注册路由器到应用
     app.include_router(api_router)

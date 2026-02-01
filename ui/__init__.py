@@ -16,6 +16,7 @@ from .template_manager_ui import get_template_manager_ui
 from .file_persistence_ui import create_file_persistence_interface
 from .comfyui_ui import create_comfyui_interface
 from .http_integration_ui import create_http_integration_interface
+from .email_ui import create_email_interface
 
 __all__ = [
     'get_custom_css',
@@ -30,5 +31,6 @@ __all__ = [
     'get_template_manager_ui',
     'create_file_persistence_interface',
     'create_comfyui_interface',
-    'create_http_integration_interface'
+    'create_http_integration_interface',
+    'create_email_interface'
 ]

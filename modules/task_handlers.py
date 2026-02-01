@@ -104,6 +104,7 @@ class TaskHandlers:
         self._register_transition_handler()
         self._register_video_merge_handler()
         self._register_http_integration_handler()
+        self._register_email_handler()
         self._register_aigc_handlers()
     
     def _register_tts_handler(self):
@@ -1238,6 +1239,82 @@ class TaskHandlers:
 
         self._handlers["comfyui_generate_media"] = comfyui_generate_media_handler
         Logger.info("注册任务处理器: comfyui_generate_media (ComfyUI生成AI配图/视频)")
+
+    def _register_email_handler(self):
+        """注册邮件发送任务处理器"""
+        async def email_handler(params: Dict[str, Any]) -> Dict[str, Any]:
+            """邮件发送任务处理器"""
+            try:
+                from modules.email_module import email_module
+
+                # 获取参数
+                to_address = params.get("to_address", "")
+                subject = params.get("subject", "")
+                content = params.get("content", "")
+                content_type = params.get("content_type", "plain")
+                attachment_mode = params.get("attachment_mode", "path")
+                attachments = params.get("attachments", [])
+
+                # 验证必填参数
+                if not to_address:
+                    raise ValueError("缺少收件人邮箱地址")
+                if not subject:
+                    raise ValueError("缺少邮件主题")
+                if not content:
+                    raise ValueError("缺少邮件内容")
+
+                # 处理附件参数
+                attachment_config = None
+                if attachments:
+                    if isinstance(attachments, list):
+                        # list类型：直接使用路径列表
+                        attachment_config = {"mode": attachment_mode, "files": attachments}
+                    elif isinstance(attachments, str):
+                        # 字符串类型：尝试解析为列表
+                        try:
+                            import json
+                            attachment_list = json.loads(attachments)
+                            attachment_config = {"mode": attachment_mode, "files": attachment_list}
+                        except:
+                            # 解析失败，作为单个路径处理
+                            attachment_config = {"mode": attachment_mode, "files": [attachments]}
+                    elif isinstance(attachments, dict):
+                        # dict类型：直接使用
+                        attachment_config = attachments
+
+                Logger.info(f"准备发送邮件: 收件人={to_address}, 主题={subject}, 附件模式={attachment_mode}")
+
+                # 发送邮件
+                success, message = email_module.send_email(
+                    to_address=to_address,
+                    subject=subject,
+                    content=content,
+                    content_type=content_type,
+                    attachments=attachment_config
+                )
+
+                if success:
+                    Logger.info(f"邮件发送成功: {message}")
+                    return {
+                        "success": True,
+                        "output": message
+                    }
+                else:
+                    Logger.error(f"邮件发送失败: {message}")
+                    return {
+                        "success": False,
+                        "error": message
+                    }
+
+            except Exception as e:
+                Logger.error(f"邮件发送任务失败: {e}")
+                return {
+                    "success": False,
+                    "error": str(e)
+                }
+
+        self._handlers["email"] = email_handler
+        Logger.info("注册邮件发送任务处理器")
 
 
 # 创建全局任务处理器实例

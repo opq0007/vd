@@ -52,7 +52,8 @@ from ui import (
     get_template_manager_ui,
     create_file_persistence_interface,
     create_comfyui_interface,
-    create_http_integration_interface
+    create_http_integration_interface,
+    create_email_interface
 )
 
 # 初始化日志
@@ -201,65 +202,9 @@ def create_gradio_interface():
             with gr.TabItem("🌐 通用HTTP集成"):
                 create_http_integration_interface()
 
-            # API文档标签页
-            with gr.TabItem("API文档"):
-                gr.Markdown("## API 文档")
-                gr.Markdown("### Swagger UI")
-                gr.Markdown(f"[点击访问 Swagger UI]({config.DOCS_URL})")
-                gr.Markdown("### ReDoc")
-                gr.Markdown(f"[点击访问 ReDoc]({config.BASE_URL}/redoc)")
-                gr.Markdown("### 主要 API 端点")
-                gr.Markdown("""
-#### 认证相关
-- `POST /api/login` - 用户登录
-
-#### 模型信息
-- `GET /api/model/info` - 获取 Whisper 模型信息
-- `GET /api/health` - 健康检查
-
-#### 语音识别 (Whisper)
-- `POST /api/transcribe/basic` - 基础语音转文字
-- `POST /api/transcribe/advanced` - 高级语音转文字（支持词级时间戳）
-
-#### 语音合成 (VoxCPM-1.5 ONNX)
-- `POST /api/tts/synthesize` - 语音合成（支持参考音频和预编码特征）
-- `POST /api/tts/save_ref` - 保存参考音频特征
-- `GET /api/tts/info` - 获取 TTS 模型信息
-- `GET /api/tts/ref_features` - 获取所有已保存的参考音频特征
-
-#### 文件操作
-- `GET /api/file/download?file_path=xxx` - 下载文件（返回二进制流）
-
-#### 字幕生成
-- `POST /api/subtitle/generate` - 生成视频字幕
-
-#### 视频合成
-- `POST /api/video/complete_process` - 一站式音视频合成+字幕生成+LLM纠错
-- `POST /api/video/tts_subtitle_video` - 文本转语音+字幕生成+音视频合成（一站式处理）
-
-#### 视频转场
-- `POST /api/transition/apply` - 应用转场效果
-- `GET /api/transition/list` - 获取转场效果列表
-- `GET /api/transition/params/{transition_name}` - 获取转场参数
-
-#### 图像处理
-- `POST /api/image/remove_background` - 去除图片背景
-- `POST /api/image/blend` - 图片混合（支持位置、缩放、直接指定宽高、自动去背景）
-- `GET /api/image/model_info` - 获取图像处理模型信息
-
-#### 视频合并
-- `POST /api/video_merge/merge` - 合并多个视频文件
-
-#### 文件持久化
-- `GET /api/persistence/platforms` - 获取可用的持久化平台列表
-- `POST /api/persistence/upload_file` - 上传单个文件到指定平台
-- `POST /api/persistence/upload_folder` - 上传文件夹到指定平台
-- `POST /api/persistence/batch_upload` - 批量上传多个文件到指定平台
-
-#### 通用HTTP集成
-- `POST /api/http/send` - 发送HTTP请求
-- `POST /api/http/send_and_save` - 发送HTTP请求并保存二进制响应到本地
-                """)
+            # 邮件发送标签页
+            with gr.TabItem("📧 邮件发送"):
+                create_email_interface()
 
     return demo
 
