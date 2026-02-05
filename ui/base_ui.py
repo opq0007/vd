@@ -8,13 +8,13 @@ import gradio as gr
 
 
 def get_custom_css() -> str:
-    """
-    获取自定义 CSS 样式
+        """
+        获取自定义 CSS 样式
 
-    Returns:
-        str: CSS 样式字符串
-    """
-    return """
+        Returns:
+            str: CSS 样式字符串
+        """
+        return """
     .container {
         max-width: 1200px;
         margin: 0 auto;
@@ -63,8 +63,45 @@ def get_custom_css() -> str:
         src: url('about:blank');
         unicode-range: U+0-10FFFF;
     }
-    """
 
+    /* 文本框和代码框滚动条样式 - 确保能够正常滚动 */
+    textarea, .cm-editor {
+        overflow-y: auto !important;
+        overflow-x: auto !important;
+        resize: vertical !important;
+        max-height: 80vh !important;
+    }
+
+    /* CodeMirror 编辑器滚动条 */
+    .cm-scroller {
+        overflow-y: auto !important;
+        overflow-x: auto !important;
+    }
+
+    /* 优化滚动条外观 */
+    textarea::-webkit-scrollbar,
+    .cm-scroller::-webkit-scrollbar {
+        width: 12px;
+        height: 12px;
+    }
+
+    textarea::-webkit-scrollbar-track,
+    .cm-scroller::-webkit-scrollbar-track {
+        background: #f1f1f1;
+        border-radius: 6px;
+    }
+
+    textarea::-webkit-scrollbar-thumb,
+    .cm-scroller::-webkit-scrollbar-thumb {
+        background: #888;
+        border-radius: 6px;
+    }
+
+    textarea::-webkit-scrollbar-thumb:hover,
+    .cm-scroller::-webkit-scrollbar-thumb:hover {
+        background: #555;
+    }
+    """
 
 def create_header(title: str = "🎙️ 整合版 Whisper 语音转文字服务") -> gr.Markdown:
     """

@@ -603,11 +603,11 @@ def create_comfyui_interface() -> gr.Blocks:
                         variant="primary"
                     )
 
-                test_conn_output = gr.Textbox(
+                test_conn_output = gr.Code(
                     label="测试结果",
                     lines=15,
                     interactive=False,
-                    placeholder='点击"测试连接"按钮查看结果...'
+                    value='点击"测试连接"按钮查看结果...'
                 )
 
             # 节点列表选项卡
@@ -618,11 +618,11 @@ def create_comfyui_interface() -> gr.Blocks:
                         variant="primary"
                     )
 
-                nodes_output = gr.Textbox(
+                nodes_output = gr.Code(
                     label="节点列表",
                     lines=20,
                     interactive=False,
-                    placeholder='点击"获取节点列表"按钮查看可用节点...'
+                    value='点击"获取节点列表"按钮查看可用节点...'
                 )
 
             # 工作流模板选项卡
@@ -664,11 +664,11 @@ def create_comfyui_interface() -> gr.Blocks:
                             scale=1
                         )
 
-                    upload_workflow_json_textarea = gr.Textbox(
+                    upload_workflow_json_textarea = gr.Code(
                         label="工作流 JSON",
-                        placeholder='{\n  "1": {\n    "inputs": {\n      "text": "{{prompt}}"\n    }\n  }\n}',
-                        lines=6,
-                        info="支持 {{参数名}} 占位符"
+                        language="json",
+                        value='{\n  "1": {\n    "inputs": {\n      "text": "{{prompt}}"\n    }\n  }\n}',
+                        lines=6
                     )
 
                     with gr.Row():
@@ -690,20 +690,20 @@ def create_comfyui_interface() -> gr.Blocks:
                 with gr.Row():
                     with gr.Column(scale=1):
                         with gr.Accordion("📋 模板信息", open=False):
-                            template_info_output = gr.Textbox(
+                            template_info_output = gr.Code(
                                 label="详情",
                                 lines=4,
                                 interactive=False,
-                                placeholder='选择模板后显示...'
+                                value='选择模板后显示...'
                             )
-                    
+
                     with gr.Column(scale=1):
                         with gr.Accordion("⚙️ 参数配置", open=True):
-                            params_json_textarea = gr.Textbox(
+                            params_json_textarea = gr.Code(
                                 label="参数 JSON",
-                                placeholder='自动填充参数示例...',
+                                language="json",
                                 lines=4,
-                                info="替换 {{参数名}}"
+                                value='自动填充参数示例...'
                             )
 
                 # 执行配置和按钮
@@ -725,11 +725,11 @@ def create_comfyui_interface() -> gr.Blocks:
 
                 # 执行结果
                 with gr.Accordion("📊 执行结果", open=False):
-                    template_output = gr.Textbox(
+                    template_output = gr.Code(
                         label="结果",
                         lines=8,
                         interactive=False,
-                        placeholder="执行结果将显示在这里..."
+                        value="执行结果将显示在这里..."
                     )
 
             # 工作流执行选项卡
@@ -737,11 +737,11 @@ def create_comfyui_interface() -> gr.Blocks:
                 gr.Markdown("### 工作流配置")
                 gr.Markdown("在下方输入 ComfyUI 工作流 JSON（可以从 ComfyUI 界面导出）")
 
-                workflow_json_textarea = gr.Textbox(
+                workflow_json_textarea = gr.Code(
                     label="工作流 JSON",
-                    placeholder='{\n  "1": {\n    "inputs": {\n      "text": "a beautiful landscape",\n      "seed": 123456\n    },\n    "class_type": "KSampler"\n  }\n}',
-                    lines=15,
-                    info="ComfyUI 工作流定义（JSON 格式）"
+                    language="json",
+                    value='{\n  "1": {\n    "inputs": {\n      "text": "a beautiful landscape",\n      "seed": 123456\n    },\n    "class_type": "KSampler"\n  }\n}',
+                    lines=15
                 )
 
                 timeout_input = gr.Number(
@@ -759,11 +759,11 @@ def create_comfyui_interface() -> gr.Blocks:
                     size="lg"
                 )
 
-                workflow_output = gr.Textbox(
+                workflow_output = gr.Code(
                     label="执行结果",
                     lines=20,
                     interactive=False,
-                    placeholder="工作流执行结果将显示在这里..."
+                    value="工作流执行结果将显示在这里..."
                 )
 
             # 文件上传选项卡
@@ -788,11 +788,11 @@ def create_comfyui_interface() -> gr.Blocks:
                     variant="primary"
                 )
 
-                upload_file_output = gr.Textbox(
+                upload_file_output = gr.Code(
                     label="上传结果",
                     lines=10,
                     interactive=False,
-                    placeholder="文件上传结果将显示在这里..."
+                    value="文件上传结果将显示在这里..."
                 )
 
         # 使用说明

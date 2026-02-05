@@ -141,16 +141,10 @@ def create_gradio_interface():
         "analytics_enabled": False,
         "delete_cache": (1800, 1800),  # 30分钟清理缓存
     }
-    
-    # 只有在 Gradio < 6.0 时才在 Blocks 构造函数中设置 css
-    import gradio as gr_module
-    if hasattr(gr_module, '__version__'):
-        version_parts = gr_module.__version__.split('.')
-        major_version = int(version_parts[0]) if version_parts else 0
-        if major_version < 6:
-            blocks_kwargs["css"] = custom_css
 
     with gr.Blocks(**blocks_kwargs) as demo:
+        # 添加自定义 CSS 样式
+        gr.HTML(f"<style>{custom_css}</style>")
         # 页面头部
         create_header()
 
