@@ -19,8 +19,14 @@ class Config:
     PORT = int(os.environ.get("PORT", 7860))
     ENABLE_GRADIO_UI = os.environ.get("ENABLE_GRADIO_UI", "true").lower() in ("true", "1", "yes")
     
-    # Token校验控制（默认禁用，启用后所有API接口都需要token校验）
-    ENABLE_TOKEN_AUTH = os.environ.get("ENABLE_TOKEN_AUTH", "false").lower() in ("true", "1", "yes")
+    # Token校验控制（默认启用，启用后API接口和Gradio界面都需要鉴权）
+    ENABLE_TOKEN_AUTH = os.environ.get("ENABLE_TOKEN_AUTH", "true").lower() in ("true", "1", "yes")
+
+    # ==================== Gradio 界面鉴权配置 ====================
+    # Gradio登录会话超时时间（秒），默认24小时
+    GRADIO_AUTH_TIMEOUT = int(os.environ.get("GRADIO_AUTH_TIMEOUT", 86400))
+    # Gradio登录重定向路径
+    GRADIO_LOGIN_PATH = "/login"
 
     # ==================== URL 配置 ====================
     BASE_HOST = os.environ.get("BASE_HOST", "127.0.0.1")
@@ -62,10 +68,11 @@ class Config:
         'opq#key': 'automation'
     }
 
-    USERS = {
-        'admin': hashlib.sha256('admin123'.encode()).hexdigest(),
-        'user': hashlib.sha256('user123'.encode()).hexdigest()
-    }
+    # Gradio 界面登录用户配置
+    # 统一使用 API_TOKEN 作为 admin 用户的密码，实现 API 和界面鉴权的统一
+    # 用户名固定为 admin，密码为 API_TOKEN 的值
+    GRADIO_USERNAME = "admin"
+    GRADIO_PASSWORD = API_TOKEN
 
     # ==================== 支持的文件格式 ====================
     VIDEO_EXTENSIONS = ['.mp4', '.avi', '.mov', '.mkv', '.wmv', '.flv', '.webm']
@@ -125,6 +132,8 @@ class Config:
     # ==================== ComfyUI 配置 ====================
     # ComfyUI 服务器地址
     COMFYUI_SERVER_URL = os.environ.get("COMFYUI_SERVER_URL", "http://127.0.0.1:8188")
+    # ComfyUI 默认认证 Token（Bearer token）
+    COMFYUI_AUTH_TOKEN = os.environ.get("COMFYUI_AUTH_TOKEN", "")
     # ComfyUI 工作流执行超时时间（秒）
     COMFYUI_TIMEOUT = int(os.environ.get("COMFYUI_TIMEOUT", "300"))
 

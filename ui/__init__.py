@@ -17,6 +17,13 @@ from .file_persistence_ui import create_file_persistence_interface
 from .comfyui_ui import create_comfyui_interface
 from .http_integration_ui import create_http_integration_interface
 from .email_ui import create_email_interface
+from .auth_ui import (
+    create_login_interface,
+    create_auth_interface,
+    login_user,
+    verify_session,
+    logout_user
+)
 
 __all__ = [
     'get_custom_css',
@@ -32,5 +39,10 @@ __all__ = [
     'create_file_persistence_interface',
     'create_comfyui_interface',
     'create_http_integration_interface',
-    'create_email_interface'
+    'create_email_interface',
+    'create_login_interface',
+    'create_auth_interface',
+    'login_user',
+    'verify_session',
+    'logout_user'
 ]

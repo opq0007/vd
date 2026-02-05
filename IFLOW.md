@@ -178,6 +178,233 @@ export ENABLE_GRADIO_UI=false
 python app.py
 ```
 
+## Gradio 界面鉴权
+
+### 概述
+
+从 v3.1.0 版本开始，Gradio Web 界面支持用户鉴权功能，确保只有授权用户才能访问和操作界面。
+
+### 配置方式
+
+#### 1. 启用鉴权功能（推荐）
+
+默认情况下，鉴权功能已启用。访问 Web 界面时需要先登录。
+
+**环境变量**：
+```bash
+ENABLE_TOKEN_AUTH=true  # 默认启用
+```
+
+**会话超时配置**：
+```bash
+GRADIO_AUTH_TIMEOUT=86400  # 会话超时时间（秒），默认24小时
+```
+
+#### 2. 禁用鉴权功能
+
+如果不需要鉴权，可以禁用此功能（不推荐生产环境使用）。
+
+**环境变量**：
+```bash
+ENABLE_TOKEN_AUTH=false
+```
+
+### 默认账号
+
+系统内置了一个默认管理员账号：
+
+| 用户名 | 密码 | 权限 |
+|--------|------|------|
+| admin  | API_TOKEN 配置值 | 管理员 |
+
+**重要说明**：
+- 界面登录密码与 API Token 统一，使用相同的配置值
+- 默认情况下，密码为配置文件中设置的 `API_TOKEN` 值
+- 通过环境变量 `API_TOKEN` 可以统一修改 API 和界面鉴权密码
+- 这样设计避免了使用者记忆多个密码，实现了鉴权的统一管理
+
+**安全提示**：生产环境部署前，请务必通过环境变量设置强密码！
+
+### 登录流程
+
+1. 访问 Web 界面：http://127.0.0.1:7860
+2. 系统自动跳转到登录页面
+3. 输入用户名 `admin` 和密码（`API_TOKEN` 配置值）
+4. 点击"登录"按钮
+5. 登录成功后，自动跳转到主界面
+
+**统一鉴权机制**：
+- API 调用时，使用 `Authorization: Bearer {API_TOKEN}` 头部进行鉴权
+- 界面登录时，使用 `admin` 作为用户名，`API_TOKEN` 作为密码
+- 两者使用相同的密码配置，实现统一的鉴权管理
+
+### 会话管理
+
+- **会话创建**：用户登录成功后，系统会创建一个会话ID
+- **会话验证**：每次操作都会验证会话的有效性
+- **会话过期**：会话在配置的超时时间后自动失效
+- **会话撤销**：用户可以主动退出登录，撤销当前会话
+
+### API 端点
+
+#### 1. Gradio 界面登录
+```
+POST /api/gradio/login
+```
+
+**请求体**：
+```json
+{
+  "username": "admin",
+  "password": "your_api_token_here"
+}
+```
+
+**注意**：密码必须与 `API_TOKEN` 环境变量的值一致。
+
+**响应示例**：
+```json
+{
+  "success": true,
+  "message": "登录成功",
+  "data": {
+    "session_id": "abc123xyz...",
+    "username": "admin",
+    "expires_in": 86400
+  }
+}
+```
+
+#### 2. 验证 Gradio 会话
+```
+GET /api/gradio/session/verify?session_id=abc123xyz...
+```
+
+**响应示例**：
+```json
+{
+  "success": true,
+  "message": "会话有效",
+  "data": {
+    "valid": true,
+    "username": "admin"
+  }
+}
+```
+
+#### 3. Gradio 界面登出
+```
+POST /api/gradio/logout
+Content-Type: multipart/form-data
+
+session_id=abc123xyz...
+```
+
+**响应示例**：
+```json
+{
+  "success": true,
+  "message": "已退出登录"
+}
+```
+
+#### 4. 列出所有活跃会话（管理员）
+```
+GET /api/gradio/sessions
+Authorization: Bearer {admin_token}
+```
+
+**响应示例**：
+```json
+{
+  "success": true,
+  "message": "获取会话列表成功",
+  "data": {
+    "sessions": [
+      {
+        "session_id": "abc123xyz...",
+        "username": "admin",
+        "expire_time": "2026-02-06T12:00:00",
+        "is_expired": false
+      }
+    ],
+    "total": 1
+  }
+}
+```
+
+#### 5. 清理过期会话（管理员）
+```
+POST /api/gradio/sessions/cleanup
+Authorization: Bearer {admin_token}
+```
+
+**响应示例**：
+```json
+{
+  "success": true,
+  "message": "已清理 5 个过期会话",
+  "data": {
+    "cleaned_count": 5
+  }
+}
+```
+
+### 安全最佳实践
+
+1. **修改默认密码**：生产环境部署前，务必通过环境变量 `API_TOKEN` 设置强密码
+   ```bash
+   # Windows
+   set API_TOKEN=your_secure_password_here
+
+   # Linux/macOS
+   export API_TOKEN=your_secure_password_here
+   ```
+2. **启用 HTTPS**：生产环境使用 HTTPS 部署，避免密码在网络中明文传输
+3. **定期更换密码**：建议定期更换 API_TOKEN，确保 API 和界面同步更新
+4. **限制访问**：通过防火墙或反向代理限制对 Web 界面的访问
+5. **监控日志**：定期检查登录日志，发现异常登录行为
+6. **会话超时**：根据安全需求设置合理的会话超时时间
+7. **统一管理**：利用统一的鉴权机制，只需管理一个密码配置即可
+
+### 故障排除
+
+#### 问题1：登录后提示"会话无效"
+
+**可能原因**：
+- 会话已过期
+- 浏览器缓存问题
+- 服务器重启导致会话丢失
+
+**解决方案**：
+- 重新登录
+- 清除浏览器缓存
+- 检查服务器日志
+
+#### 问题2：无法登录
+
+**可能原因**：
+- 用户名或密码错误
+- 鉴权功能未启用
+- 账号被禁用
+
+**解决方案**：
+- 检查用户名和密码
+- 确认 `ENABLE_GRADIO_AUTH=true`
+- 查看服务器日志
+
+#### 问题3：登录后立即被登出
+
+**可能原因**：
+- 会话超时时间设置过短
+- 浏览器禁用了 Cookie
+- 系统时间不正确
+
+**解决方案**：
+- 增加 `GRADIO_AUTH_TIMEOUT` 配置值
+- 允许浏览器使用 Cookie
+- 检查系统时间设置
+
 ### 服务地址
 
 - **Web 界面**: http://127.0.0.1:7860
@@ -339,7 +566,7 @@ python app.py
 - 普通用户: `user` / `user123`
 
 固定 token：
-- `opq#key` - 统一认证 token（用于自动化调用和测试）
+- `your_api_token_here` - 统一认证 token（用于自动化调用和测试）
 
 ### 主要 API
 
@@ -394,7 +621,7 @@ VOXCPM_MODEL_DIR = os.environ.get("VOXCPM_MODEL_DIR", "models/OpenBMB__VoxCPM-0.
 VOXCPM_REPO_ID = os.environ.get("VOXCPM_REPO_ID", "OpenBMB/VoxCPM-0.5B")
 
 # 认证配置
-API_TOKEN = os.environ.get("API_TOKEN", "opq#key")
+API_TOKEN = os.environ.get("API_TOKEN", "your_api_token_here")
 SECRET_KEY = os.environ.get("SECRET_KEY", "your-secret-key-change-in-production")
 
 # 文件和目录配置
@@ -728,7 +955,7 @@ import requests
 
 # 配置
 BASE_URL = "http://127.0.0.1:7860"
-TOKEN = "opq#key"
+TOKEN = "your_api_token_here"
 headers = {"Authorization": f"Bearer {TOKEN}"}
 
 # 1. 获取模板列表
@@ -791,7 +1018,7 @@ else:
 ```bash
 # 配置
 BASE_URL="http://127.0.0.1:7860"
-TOKEN="opq#key"
+TOKEN="your_api_token_here"
 
 # 1. 获取模板列表
 curl -X GET "${BASE_URL}/api/batch/templates" \

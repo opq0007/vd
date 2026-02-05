@@ -162,9 +162,11 @@ def get_template_manager_ui() -> gr.Blocks:
 
     # 创建界面
     with gr.Blocks(
-        title="模板管理",
-        theme=gr.themes.Soft(),
-        css="""
+        title="模板管理"
+    ) as template_manager_ui:
+        # 添加自定义 CSS 样式
+        gr.HTML("""
+        <style>
         .template-list {
             max-height: 400px;
             overflow-y: auto;
@@ -177,8 +179,8 @@ def get_template_manager_ui() -> gr.Blocks:
             max-height: 200px;
             overflow-y: auto;
         }
-        """
-    ) as template_manager_ui:
+        </style>
+        """)
 
         gr.Markdown("## 📁 模板管理")
         gr.Markdown("管理综合处理模板文件，包括新增、编辑、删除模板以及上传模板资源文件。")

@@ -128,6 +128,139 @@ async def general_exception_handler(request: Request, exc: Exception):
     )
 
 # ----------------------------
+# Gradio 界面鉴权相关函数
+# ----------------------------
+def login_user(username: str, password: str) -> tuple:
+    """
+    用户登录函数
+
+    Args:
+        username: 用户名
+        password: 密码
+
+    Returns:
+        tuple: (success: bool, message: str, session_id: str)
+    """
+    from api.auth import AuthService
+    
+    # 验证用户凭据
+    if AuthService.verify_user(username, password):
+        # 创建会话
+        session_id = AuthService.create_gradio_session(username)
+        Logger.info(f"User {username} logged in successfully")
+        return True, "登录成功！", session_id
+    else:
+        Logger.warning(f"Failed login attempt for user: {username}")
+        return False, "用户名或密码错误！", ""
+
+def verify_session(session_id: str) -> tuple:
+    """
+    验证会话函数
+
+    Args:
+        session_id: 会话ID
+
+    Returns:
+        tuple: (valid: bool, username: str)
+    """
+    from api.auth import AuthService
+    
+    username = AuthService.verify_gradio_session(session_id)
+    if username:
+        return True, username
+    return False, ""
+
+def logout_user(session_id: str) -> tuple:
+    """
+    用户登出函数
+
+    Args:
+        session_id: 会话ID
+
+    Returns:
+        tuple: (success: bool, message: str)
+    """
+    from api.auth import AuthService
+    
+    if AuthService.revoke_gradio_session(session_id):
+        return True, "已退出登录"
+    return False, "会话无效"
+
+def create_login_interface():
+    """创建登录界面"""
+    login_css = """
+    .login-container {
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        min-height: 100vh;
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    }
+    .login-box {
+        background: white;
+        padding: 40px;
+        border-radius: 15px;
+        box-shadow: 0 10px 40px rgba(0,0,0,0.2);
+        max-width: 400px;
+        width: 100%;
+    }
+    .login-title {
+        text-align: center;
+        margin-bottom: 30px;
+        color: #333;
+        font-size: 24px;
+        font-weight: bold;
+    }
+    """
+
+    with gr.Blocks(css=login_css) as login_demo:
+        gr.HTML("""
+        <div class="login-container">
+            <div class="login-box">
+                <div class="login-title">🔐 登录</div>
+            </div>
+        </div>
+        """)
+        
+        with gr.Row():
+            with gr.Column():
+                username_input = gr.Textbox(
+                    label="用户名",
+                    placeholder="请输入用户名",
+                    type="text"
+                )
+                password_input = gr.Textbox(
+                    label="密码",
+                    placeholder="请输入密码",
+                    type="password"
+                )
+                login_btn = gr.Button("登录", variant="primary", size="lg")
+                login_message = gr.Textbox(label="", visible=False)
+                session_id_state = gr.State(value="")
+
+                # 登录按钮点击事件
+                login_btn.click(
+                    fn=login_user,
+                    inputs=[username_input, password_input],
+                    outputs=[login_message, gr.Textbox(visible=False), session_id_state]
+                )
+                
+                # 显示登录结果
+                login_message.change(
+                    fn=lambda msg: gr.update(visible=True, value=msg),
+                    inputs=[login_message],
+                    outputs=[login_message]
+                )
+        
+        gr.HTML("""
+        <div style="margin-top: 20px; text-align: center; color: #666; font-size: 14px;">
+            <p>默认账号：<br/>admin / admin123<br/>user / user123</p>
+        </div>
+        """)
+
+    return login_demo
+
+# ----------------------------
 # Gradio 界面
 # ----------------------------
 def create_gradio_interface():
@@ -141,70 +274,145 @@ def create_gradio_interface():
         "analytics_enabled": False,
         "delete_cache": (1800, 1800),  # 30分钟清理缓存
     }
-    
-    # 只有在 Gradio < 6.0 时才在 Blocks 构造函数中设置 css
-    import gradio as gr_module
-    if hasattr(gr_module, '__version__'):
-        version_parts = gr_module.__version__.split('.')
-        major_version = int(version_parts[0]) if version_parts else 0
-        if major_version < 6:
-            blocks_kwargs["css"] = custom_css
 
     with gr.Blocks(**blocks_kwargs) as demo:
-        # 页面头部
-        create_header()
+        # 添加自定义 CSS 样式
+        gr.HTML(f"<style>{custom_css}</style>")
+        
+        # 会话状态（用于鉴权）
+        session_state = gr.State(value="")
+        is_logged_in = gr.State(value=False)
+        
+        # 使用 Column 来包裹登录界面和主界面，避免水平排列导致的布局问题
+        with gr.Column():
+            # 主界面（需要登录后才能访问）
+            # 使用 Group 来控制整个主界面的可见性，而不是 Row
+            with gr.Group(visible=not config.ENABLE_TOKEN_AUTH) as main_group:
+                # 页面头部
+                create_header()
 
-        # 定义状态变量
-        job_completed = gr.State(value=False)
+                # 定义状态变量
+                job_completed = gr.State(value=False)
 
-        with gr.Tabs():
-            # 语音合成标签页
-            with gr.TabItem("🎤 语音合成"):
-                create_tts_interface()
+                with gr.Tabs():
+                    # 语音合成标签页
+                    with gr.TabItem("🎤 语音合成"):
+                        create_tts_interface()
 
-            # 高级字幕生成标签页
-            with gr.TabItem("高级字幕生成"):
-                create_subtitle_interface()
+                    # 高级字幕生成标签页
+                    with gr.TabItem("高级字幕生成"):
+                        create_subtitle_interface()
 
-            # 图像处理标签页
-            with gr.TabItem("🖼️ 图像处理"):
-                create_image_processing_interface()
+                    # 图像处理标签页
+                    with gr.TabItem("🖼️ 图像处理"):
+                        create_image_processing_interface()
 
-            # 自动剪辑标签页
-            with gr.TabItem("✂️ 自动剪辑"):
-                create_video_editor_interface()
+                    # 自动剪辑标签页
+                    with gr.TabItem("✂️ 自动剪辑"):
+                        create_video_editor_interface()
 
-            # 视频转场特效标签页
-            with gr.TabItem("视频转场特效"):
-                create_transition_interface()
+                    # 视频转场特效标签页
+                    with gr.TabItem("视频转场特效"):
+                        create_transition_interface()
 
-            # 视频合并标签页
-            with gr.TabItem("🔗 视频合并"):
-                create_video_merge_interface()
+                    # 视频合并标签页
+                    with gr.TabItem("🔗 视频合并"):
+                        create_video_merge_interface()
 
-            # 综合处理标签页
-            with gr.TabItem("🚀 综合处理"):
-                create_batch_processing_interface()
+                    # 综合处理标签页
+                    with gr.TabItem("🚀 综合处理"):
+                        create_batch_processing_interface()
 
-            # 模板管理标签页
-            with gr.TabItem("📁 模板管理"):
-                get_template_manager_ui()
+                    # 模板管理标签页
+                    with gr.TabItem("📁 模板管理"):
+                        get_template_manager_ui()
 
-            # 文件持久化标签页
-            with gr.TabItem("☁️ 文件持久化"):
-                create_file_persistence_interface()
+                    # 文件持久化标签页
+                    with gr.TabItem("☁️ 文件持久化"):
+                        create_file_persistence_interface()
 
-            # ComfyUI 集成标签页
-            with gr.TabItem("🎨 ComfyUI 集成"):
-                create_comfyui_interface()
+                    # ComfyUI 集成标签页
+                    with gr.TabItem("🎨 ComfyUI 集成"):
+                        create_comfyui_interface()
 
-            # 通用HTTP集成标签页
-            with gr.TabItem("🌐 通用HTTP集成"):
-                create_http_integration_interface()
+                    # 通用HTTP集成标签页
+                    with gr.TabItem("🌐 通用HTTP集成"):
+                        create_http_integration_interface()
 
-            # 邮件发送标签页
-            with gr.TabItem("📧 邮件发送"):
-                create_email_interface()
+                    # 邮件发送标签页
+                    with gr.TabItem("📧 邮件发送"):
+                        create_email_interface()
+        
+        # 如果启用了鉴权，显示登录界面
+        if config.ENABLE_TOKEN_AUTH:
+            with gr.Row(visible=True) as login_row:
+                with gr.Column():
+                    gr.Markdown("## 🔐 用户登录")
+                    username_input = gr.Textbox(label="用户名", placeholder="请输入用户名")
+                    password_input = gr.Textbox(label="密码", placeholder="请输入密码", type="password")
+                    login_btn = gr.Button("登录", variant="primary")
+                    login_message = gr.Textbox(label="", visible=False, interactive=False)
+                    
+                    # 登录处理
+                    # 临时状态变量，用于在 login_user 和 handle_login_result 之间传递数据
+                    login_success = gr.State(value=False)
+                    login_msg = gr.State(value="")
+                    login_sid = gr.State(value="")
+                    
+                    def handle_login_result(success, message, session_id):
+                        """处理登录结果"""
+                        if success:
+                            # 登录成功：隐藏登录行，显示主界面，更新会话状态
+                            return (
+                                gr.update(visible=False),  # login_row
+                                gr.update(visible=True, value="✅ " + message),  # login_message
+                                session_id,  # session_state
+                                True  # is_logged_in
+                            )
+                        else:
+                            # 登录失败：保持登录行显示，显示错误消息
+                            return (
+                                gr.update(visible=True),  # login_row
+                                gr.update(visible=True, value="❌ " + message),  # login_message
+                                "",  # session_state
+                                False  # is_logged_in
+                            )
+                    
+                    login_btn.click(
+                        fn=login_user,
+                        inputs=[username_input, password_input],
+                        outputs=[login_success, login_msg, login_sid]
+                    ).then(
+                        fn=handle_login_result,
+                        inputs=[login_success, login_msg, login_sid],
+                        outputs=[login_row, login_message, session_state, is_logged_in]
+                    )
+            
+            gr.HTML("""
+            <div style="margin-top: 10px; padding: 10px; background: #e3f2fd; border-radius: 5px; color: #1565c0; font-size: 12px;">
+                <p><strong>登录说明：</strong></p>
+                <p>用户名：<code>admin</code></p>
+                <p>密码：<code>API_TOKEN</code> 配置值</p>
+                <p style="margin-top: 10px; font-size: 11px; color: #999;">
+                    💡 提示：界面登录密码与 API Token 统一，使用相同的配置值
+                </p>
+            </div>
+            """)
+
+        # 登录状态变化时更新界面显示
+        def update_visibility(logged_in):
+            """根据登录状态更新界面可见性"""
+            if logged_in:
+                return gr.update(visible=True)
+            else:
+                return gr.update(visible=not config.ENABLE_TOKEN_AUTH)
+
+        # 监听 is_logged_in 状态变化
+        is_logged_in.change(
+            fn=update_visibility,
+            inputs=[is_logged_in],
+            outputs=[main_group]
+        )
 
     return demo
 

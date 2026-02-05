@@ -1,0 +1,251 @@
+{
+  "99": {
+    "inputs": {
+      "unet_name": "flux-2-klein-4b-Q4_K_M.gguf"
+    },
+    "class_type": "UnetLoaderGGUF",
+    "_meta": {
+      "title": "Unet Loader (GGUF)"
+    }
+  },
+  "100": {
+    "inputs": {
+      "clip_name": "Qwen3-4B-Instruct-2507-Q4_K_M.gguf",
+      "type": "flux2"
+    },
+    "class_type": "CLIPLoaderGGUF",
+    "_meta": {
+      "title": "CLIPLoader (GGUF)"
+    }
+  },
+  "101": {
+    "inputs": {
+      "vae_name": "flux2-vae.safetensors"
+    },
+    "class_type": "VAELoader",
+    "_meta": {
+      "title": "加载VAE"
+    }
+  },
+  "103": {
+    "inputs": {
+      "text": "{{prompt}}",
+      "clip": [
+        "100",
+        0
+      ]
+    },
+    "class_type": "CLIPTextEncode",
+    "_meta": {
+      "title": "CLIP文本编码"
+    }
+  },
+  "104": {
+    "inputs": {
+      "conditioning": [
+        "103",
+        0
+      ]
+    },
+    "class_type": "ConditioningZeroOut",
+    "_meta": {
+      "title": "条件零化"
+    }
+  },
+  "105": {
+    "inputs": {
+      "image": "{{inputImg}}"
+    },
+    "class_type": "LoadImage",
+    "_meta": {
+      "title": "加载图像"
+    }
+  },
+  "107": {
+    "inputs": {
+      "pixels": [
+        "123",
+        0
+      ],
+      "vae": [
+        "101",
+        0
+      ]
+    },
+    "class_type": "VAEEncode",
+    "_meta": {
+      "title": "VAE编码"
+    }
+  },
+  "108": {
+    "inputs": {
+      "conditioning": [
+        "103",
+        0
+      ],
+      "latent": [
+        "107",
+        0
+      ]
+    },
+    "class_type": "ReferenceLatent",
+    "_meta": {
+      "title": "参考Latent"
+    }
+  },
+  "109": {
+    "inputs": {
+      "width": [
+        "110",
+        0
+      ],
+      "height": [
+        "110",
+        1
+      ],
+      "batch_size": 1
+    },
+    "class_type": "EmptyLatentImage",
+    "_meta": {
+      "title": "空Latent图像"
+    }
+  },
+  "110": {
+    "inputs": {
+      "image": [
+        "123",
+        0
+      ]
+    },
+    "class_type": "GetImageSize",
+    "_meta": {
+      "title": "获取图像尺寸"
+    }
+  },
+  "111": {
+    "inputs": {
+      "image": "example.png"
+    },
+    "class_type": "LoadImage",
+    "_meta": {
+      "title": "加载图像"
+    }
+  },
+  "113": {
+    "inputs": {
+      "pixels": [
+        "124",
+        0
+      ],
+      "vae": [
+        "101",
+        0
+      ]
+    },
+    "class_type": "VAEEncode",
+    "_meta": {
+      "title": "VAE编码"
+    }
+  },
+  "114": {
+    "inputs": {
+      "conditioning": [
+        "108",
+        0
+      ],
+      "latent": [
+        "113",
+        0
+      ]
+    },
+    "class_type": "ReferenceLatent",
+    "_meta": {
+      "title": "参考Latent"
+    }
+  },
+  "116": {
+    "inputs": {
+      "seed": 42,
+      "steps": 4,
+      "cfg": 1,
+      "sampler_name": "euler",
+      "scheduler": "simple",
+      "denoise": 1,
+      "model": [
+        "99",
+        0
+      ],
+      "positive": [
+        "114",
+        0
+      ],
+      "negative": [
+        "104",
+        0
+      ],
+      "latent_image": [
+        "109",
+        0
+      ]
+    },
+    "class_type": "KSampler",
+    "_meta": {
+      "title": "K采样器"
+    }
+  },
+  "117": {
+    "inputs": {
+      "samples": [
+        "116",
+        0
+      ],
+      "vae": [
+        "101",
+        0
+      ]
+    },
+    "class_type": "VAEDecode",
+    "_meta": {
+      "title": "VAE解码"
+    }
+  },
+  "120": {
+    "inputs": {
+      "filename_prefix": "ComfyUI",
+      "images": [
+        "117",
+        0
+      ]
+    },
+    "class_type": "SaveImage",
+    "_meta": {
+      "title": "保存图像"
+    }
+  },
+  "123": {
+    "inputs": {
+      "longer_edge": 1024,
+      "images": [
+        "105",
+        0
+      ]
+    },
+    "class_type": "ResizeImagesByLongerEdge",
+    "_meta": {
+      "title": "缩放图像（长边）"
+    }
+  },
+  "124": {
+    "inputs": {
+      "longer_edge": 1024,
+      "images": [
+        "111",
+        0
+      ]
+    },
+    "class_type": "ResizeImagesByLongerEdge",
+    "_meta": {
+      "title": "缩放图像2（长边）"
+    }
+  }
+}
