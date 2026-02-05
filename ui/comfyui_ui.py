@@ -226,7 +226,7 @@ def execute_workflow_from_template(    workflow_name: str,
         async def run_execute():
             result = await comfyui_module.execute_workflow_from_template(
                 workflow_name=workflow_name,
-                server_url=server_url,
+                server_url=server_url if server_url.strip() else None,
                 auth_token=auth_token if auth_token.strip() else None,
                 username=username if username.strip() else None,
                 password=password if password.strip() else None,
@@ -313,7 +313,7 @@ def test_comfyui_connection(
 
         async def run_test():
             result = await comfyui_module.test_connection(
-                server_url=server_url,
+                server_url=server_url if server_url.strip() else None,
                 auth_token=auth_token if auth_token.strip() else None,
                 username=username if username.strip() else None,
                 password=password if password.strip() else None
@@ -357,7 +357,7 @@ def get_comfyui_nodes(
 
         async def run_get():
             result = await comfyui_module.get_available_nodes(
-                server_url=server_url,
+                server_url=server_url if server_url.strip() else None,
                 auth_token=auth_token if auth_token.strip() else None,
                 username=username if username.strip() else None,
                 password=password if password.strip() else None
@@ -431,7 +431,7 @@ def execute_comfyui_workflow(
         async def run_execute():
             result = await comfyui_module.execute_workflow_from_json(
                 workflow_json=workflow_json,
-                server_url=server_url,
+                server_url=server_url if server_url.strip() else None,
                 auth_token=auth_token if auth_token.strip() else None,
                 username=username if username.strip() else None,
                 password=password if password.strip() else None,
@@ -530,7 +530,7 @@ def upload_file_to_comfyui(
             result = await comfyui_module.upload_file(
                 filename=filename,
                 filepath=file_path,
-                server_url=server_url,
+                server_url=server_url if server_url.strip() else None,
                 auth_token=auth_token if auth_token.strip() else None,
                 username=username if username.strip() else None,
                 password=password if password.strip() else None
@@ -559,6 +559,8 @@ def create_comfyui_interface() -> gr.Blocks:
     Returns:
         gr.Blocks: Gradio 界面块
     """
+    from config import config
+
     with gr.Blocks() as comfyui_interface:
         gr.Markdown("## 🎨 ComfyUI 集成")
         gr.Markdown("连接 ComfyUI 服务器并执行工作流生成多种媒体文件")
@@ -567,7 +569,7 @@ def create_comfyui_interface() -> gr.Blocks:
         with gr.Row():
             server_url_input = gr.Textbox(
                 label="ComfyUI 服务器地址",
-                value="http://127.0.0.1:8188",
+                value=getattr(config, 'COMFYUI_SERVER_URL', 'http://127.0.0.1:8188'),
                 placeholder="例如: http://127.0.0.1:8188",
                 info="ComfyUI 服务器的地址"
             )
@@ -577,6 +579,7 @@ def create_comfyui_interface() -> gr.Blocks:
             with gr.Row():
                 auth_token_input = gr.Textbox(
                     label="认证 Token",
+                    value=getattr(config, 'COMFYUI_AUTH_TOKEN', ''),
                     placeholder="Bearer Token",
                     info="使用 Token 认证（优先级高于用户名密码）"
                 )

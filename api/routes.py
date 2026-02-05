@@ -53,7 +53,7 @@ def register_routes(app) -> None:
     @api_router.post("/login")
     async def login(request: LoginRequest) -> Dict[str, Any]:
         """
-        用户登录
+        用户登录（API模式）
 
         Args:
             request: 登录请求
@@ -80,6 +80,198 @@ def register_routes(app) -> None:
                 )
         except Exception as e:
             return response_formatter.wrap_exception(e, "登录失败")
+
+    # ==================== Gradio 会话管理 ====================
+    @api_router.post("/gradio/login")
+    async def gradio_login(request: LoginRequest) -> Dict[str, Any]:
+        """
+        Gradio 界面用户登录（创建会话）
+
+        Args:
+            request: 登录请求
+
+        Returns:
+            Dict[str, Any]: 包含会话ID的响应
+        """
+        try:
+            if not config.ENABLE_TOKEN_AUTH:
+                return response_formatter.error(
+                    message="鉴权功能未启用",
+                    error_code="AUTH_DISABLED"
+                )
+            
+            if AuthService.verify_user(request.username, request.password):
+                session_id = AuthService.create_gradio_session(request.username)
+                Logger.info(f"Gradio login successful for user: {request.username}")
+                return response_formatter.success(
+                    data={
+                        "session_id": session_id,
+                        "username": request.username,
+                        "expires_in": config.GRADIO_AUTH_TIMEOUT
+                    },
+                    message="登录成功"
+                )
+            else:
+                Logger.warning(f"Gradio login failed for user: {request.username}")
+                return response_formatter.error(
+                    message="用户名或密码错误",
+                    error_code="INVALID_CREDENTIALS"
+                )
+        except Exception as e:
+            return response_formatter.wrap_exception(e, "登录失败")
+
+    @api_router.get("/gradio/session/verify")
+    async def verify_gradio_session(session_id: str = Query(..., description="会话ID")) -> Dict[str, Any]:
+        """
+        验证 Gradio 会话
+
+        Args:
+            session_id: 会话ID
+
+        Returns:
+            Dict[str, Any]: 会话验证结果
+        """
+        try:
+            if not config.ENABLE_TOKEN_AUTH:
+                return response_formatter.error(
+                    message="鉴权功能未启用",
+                    error_code="AUTH_DISABLED"
+                )
+            
+            username = AuthService.verify_gradio_session(session_id)
+            if username:
+                return response_formatter.success(
+                    data={
+                        "valid": True,
+                        "username": username
+                    },
+                    message="会话有效"
+                )
+            else:
+                return response_formatter.error(
+                    message="会话无效或已过期",
+                    error_code="INVALID_SESSION"
+                )
+        except Exception as e:
+            return response_formatter.wrap_exception(e, "验证会话失败")
+
+    @api_router.post("/gradio/logout")
+    async def gradio_logout(session_id: str = Form(..., description="会话ID")) -> Dict[str, Any]:
+        """
+        Gradio 界面用户登出（撤销会话）
+
+        Args:
+            session_id: 会话ID
+
+        Returns:
+            Dict[str, Any]: 登出结果
+        """
+        try:
+            if not config.ENABLE_TOKEN_AUTH:
+                return response_formatter.error(
+                    message="鉴权功能未启用",
+                    error_code="AUTH_DISABLED"
+                )
+            
+            if AuthService.revoke_gradio_session(session_id):
+                Logger.info(f"Gradio logout successful for session: {session_id}")
+                return response_formatter.success(
+                    message="已退出登录"
+                )
+            else:
+                return response_formatter.error(
+                    message="会话无效",
+                    error_code="INVALID_SESSION"
+                )
+        except Exception as e:
+            return response_formatter.wrap_exception(e, "登出失败")
+
+    @api_router.get("/gradio/sessions")
+    async def list_gradio_sessions(payload: Dict[str, Any] = Depends(verify_token_required)) -> Dict[str, Any]:
+        """
+        列出所有活跃的 Gradio 会话（需要管理员权限）
+
+        Args:
+            payload: 认证载荷
+
+        Returns:
+            Dict[str, Any]: 会话列表
+        """
+        try:
+            if not config.ENABLE_TOKEN_AUTH:
+                return response_formatter.error(
+                    message="鉴权功能未启用",
+                    error_code="AUTH_DISABLED"
+                )
+            
+            # 获取当前用户名
+            username = payload.get("sub")
+            
+            # 只有管理员可以查看所有会话
+            if username != "admin":
+                return response_formatter.error(
+                    message="权限不足，需要管理员权限",
+                    error_code="PERMISSION_DENIED"
+                )
+            
+            sessions = []
+            for session_id, session_data in AuthService._sessions.items():
+                sessions.append({
+                    "session_id": session_id,
+                    "username": session_data["username"],
+                    "expire_time": session_data["expire_time"].isoformat(),
+                    "is_expired": datetime.utcnow() > session_data["expire_time"]
+                })
+            
+            return response_formatter.success(
+                data={
+                    "sessions": sessions,
+                    "total": len(sessions)
+                },
+                message="获取会话列表成功"
+            )
+        except Exception as e:
+            return response_formatter.wrap_exception(e, "获取会话列表失败")
+
+    @api_router.post("/gradio/sessions/cleanup")
+    async def cleanup_gradio_sessions(payload: Dict[str, Any] = Depends(verify_token_required)) -> Dict[str, Any]:
+        """
+        清理过期的 Gradio 会话（需要管理员权限）
+
+        Args:
+            payload: 认证载荷
+
+        Returns:
+            Dict[str, Any]: 清理结果
+        """
+        try:
+            if not config.ENABLE_TOKEN_AUTH:
+                return response_formatter.error(
+                    message="鉴权功能未启用",
+                    error_code="AUTH_DISABLED"
+                )
+            
+            # 获取当前用户名
+            username = payload.get("sub")
+            
+            # 只有管理员可以清理会话
+            if username != "admin":
+                return response_formatter.error(
+                    message="权限不足，需要管理员权限",
+                    error_code="PERMISSION_DENIED"
+                )
+            
+            from datetime import datetime
+            cleaned_count = AuthService.cleanup_expired_sessions()
+            
+            return response_formatter.success(
+                data={
+                    "cleaned_count": cleaned_count
+                },
+                message=f"已清理 {cleaned_count} 个过期会话"
+            )
+        except Exception as e:
+            return response_formatter.wrap_exception(e, "清理会话失败")
 
     # ==================== 模型信息 ====================
     @api_router.get("/model/info")
@@ -2380,8 +2572,8 @@ def register_routes(app) -> None:
     # ==================== ComfyUI 集成 ====================
     @api_router.get("/comfyui/test")
     async def test_comfyui_connection(
-        server_url: str = Query("http://127.0.0.1:8188", description="ComfyUI 服务器地址"),
-        auth_token: Optional[str] = Query(None, description="ComfyUI 认证 Token"),
+        server_url: Optional[str] = Query(None, description="ComfyUI 服务器地址（不传则使用默认配置）"),
+        auth_token: Optional[str] = Query(None, description="ComfyUI 认证 Token（不传则使用默认配置）"),
         username: Optional[str] = Query(None, description="ComfyUI 用户名"),
         password: Optional[str] = Query(None, description="ComfyUI 密码"),
         payload: Dict[str, Any] = Depends(verify_token)
@@ -2390,8 +2582,8 @@ def register_routes(app) -> None:
         测试 ComfyUI 连接
 
         Args:
-            server_url: ComfyUI 服务器地址
-            auth_token: ComfyUI 认证 Token
+            server_url: ComfyUI 服务器地址（不传则使用默认配置）
+            auth_token: ComfyUI 认证 Token（不传则使用默认配置）
             username: ComfyUI 用户名
             password: ComfyUI 密码
             payload: 认证载荷
@@ -2403,7 +2595,7 @@ def register_routes(app) -> None:
             from modules.comfyui_module import comfyui_module
 
             result = await comfyui_module.test_connection(
-                server_url=server_url,
+                server_url=server_url if server_url else None,
                 auth_token=auth_token,
                 username=username,
                 password=password
@@ -2418,8 +2610,8 @@ def register_routes(app) -> None:
 
     @api_router.get("/comfyui/nodes")
     async def get_comfyui_nodes(
-        server_url: str = Query("http://127.0.0.1:8188", description="ComfyUI 服务器地址"),
-        auth_token: Optional[str] = Query(None, description="ComfyUI 认证 Token"),
+        server_url: Optional[str] = Query(None, description="ComfyUI 服务器地址（不传则使用默认配置）"),
+        auth_token: Optional[str] = Query(None, description="ComfyUI 认证 Token（不传则使用默认配置）"),
         username: Optional[str] = Query(None, description="ComfyUI 用户名"),
         password: Optional[str] = Query(None, description="ComfyUI 密码"),
         payload: Dict[str, Any] = Depends(verify_token)
@@ -2428,8 +2620,8 @@ def register_routes(app) -> None:
         获取 ComfyUI 可用节点列表
 
         Args:
-            server_url: ComfyUI 服务器地址
-            auth_token: ComfyUI 认证 Token
+            server_url: ComfyUI 服务器地址（不传则使用默认配置）
+            auth_token: ComfyUI 认证 Token（不传则使用默认配置）
             username: ComfyUI 用户名
             password: ComfyUI 密码
             payload: 认证载荷
@@ -2441,7 +2633,7 @@ def register_routes(app) -> None:
             from modules.comfyui_module import comfyui_module
 
             result = await comfyui_module.get_available_nodes(
-                server_url=server_url,
+                server_url=server_url if server_url else None,
                 auth_token=auth_token,
                 username=username,
                 password=password
@@ -2457,8 +2649,8 @@ def register_routes(app) -> None:
     @api_router.post("/comfyui/execute")
     async def execute_comfyui_workflow(
         workflow_json: str = Form(..., description="工作流 JSON"),
-        server_url: str = Form("http://127.0.0.1:8188", description="ComfyUI 服务器地址"),
-        auth_token: Optional[str] = Form(None, description="ComfyUI 认证 Token"),
+        server_url: Optional[str] = Form(None, description="ComfyUI 服务器地址（不传则使用默认配置）"),
+        auth_token: Optional[str] = Form(None, description="ComfyUI 认证 Token（不传则使用默认配置）"),
         username: Optional[str] = Form(None, description="ComfyUI 用户名"),
         password: Optional[str] = Form(None, description="ComfyUI 密码"),
         timeout: int = Form(300, description="超时时间（秒）"),
@@ -2470,8 +2662,8 @@ def register_routes(app) -> None:
 
         Args:
             workflow_json: 工作流 JSON 字符串
-            server_url: ComfyUI 服务器地址
-            auth_token: ComfyUI 认证 Token
+            server_url: ComfyUI 服务器地址（不传则使用默认配置）
+            auth_token: ComfyUI 认证 Token（不传则使用默认配置）
             username: ComfyUI 用户名
             password: ComfyUI 密码
             upload_files_json: 上传文件 JSON，格式为 {"filename": "filepath"}
@@ -2496,7 +2688,7 @@ def register_routes(app) -> None:
 
             result = await comfyui_module.execute_workflow_from_json(
                 workflow_json=workflow_json,
-                server_url=server_url,
+                server_url=server_url if server_url else None,
                 auth_token=auth_token,
                 username=username,
                 password=password,
@@ -2521,8 +2713,8 @@ def register_routes(app) -> None:
     async def upload_file_to_comfyui(
         file: UploadFile = File(..., description="要上传的文件"),
         filename: Optional[str] = Form(None, description="上传后的文件名（可选）"),
-        server_url: str = Form("http://127.0.0.1:8188", description="ComfyUI 服务器地址"),
-        auth_token: Optional[str] = Form(None, description="ComfyUI 认证 Token"),
+        server_url: Optional[str] = Form(None, description="ComfyUI 服务器地址（不传则使用默认配置）"),
+        auth_token: Optional[str] = Form(None, description="ComfyUI 认证 Token（不传则使用默认配置）"),
         username: Optional[str] = Form(None, description="ComfyUI 用户名"),
         password: Optional[str] = Form(None, description="ComfyUI 密码"),
         payload: Dict[str, Any] = Depends(verify_token)
@@ -2533,8 +2725,8 @@ def register_routes(app) -> None:
         Args:
             file: 要上传的文件
             filename: 上传后的文件名（可选）
-            server_url: ComfyUI 服务器地址
-            auth_token: ComfyUI 认证 Token
+            server_url: ComfyUI 服务器地址（不传则使用默认配置）
+            auth_token: ComfyUI 认证 Token（不传则使用默认配置）
             username: ComfyUI 用户名
             password: ComfyUI 密码
             payload: 认证载荷
@@ -2560,7 +2752,7 @@ def register_routes(app) -> None:
             result = await comfyui_module.upload_file(
                 filename=upload_filename,
                 filepath=str(temp_path),
-                server_url=server_url,
+                server_url=server_url if server_url else None,
                 auth_token=auth_token,
                 username=username,
                 password=password
@@ -2672,8 +2864,8 @@ def register_routes(app) -> None:
     async def execute_workflow_from_template(
         workflow_name: str = Form(..., description="工作流文件名"),
         params: Optional[str] = Form(None, description="参数 JSON（可选）"),
-        server_url: str = Form("http://127.0.0.1:8188", description="ComfyUI 服务器地址"),
-        auth_token: Optional[str] = Form(None, description="ComfyUI 认证 Token"),
+        server_url: Optional[str] = Form(None, description="ComfyUI 服务器地址（不传则使用默认配置）"),
+        auth_token: Optional[str] = Form(None, description="ComfyUI 认证 Token（不传则使用默认配置）"),
         username: Optional[str] = Form(None, description="ComfyUI 用户名"),
         password: Optional[str] = Form(None, description="ComfyUI 密码"),
         timeout: int = Form(300, description="超时时间（秒）"),
@@ -2686,8 +2878,8 @@ def register_routes(app) -> None:
         Args:
             workflow_name: 工作流文件名
             params: 参数 JSON（可选）
-            server_url: ComfyUI 服务器地址
-            auth_token: ComfyUI 认证 Token
+            server_url: ComfyUI 服务器地址（不传则使用默认配置）
+            auth_token: ComfyUI 认证 Token（不传则使用默认配置）
             username: ComfyUI 用户名
             password: ComfyUI 密码
             timeout: 超时时间（秒）
@@ -2725,7 +2917,7 @@ def register_routes(app) -> None:
 
             result = await comfyui_module.execute_workflow_from_template(
                 workflow_name=workflow_name,
-                server_url=server_url,
+                server_url=server_url if server_url else None,
                 auth_token=auth_token,
                 username=username,
                 password=password,

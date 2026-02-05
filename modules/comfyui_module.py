@@ -544,6 +544,7 @@ class ComfyUIModule:
         """
         from config import config
         self.default_server_url = server_url or getattr(config, 'COMFYUI_SERVER_URL', 'http://127.0.0.1:8188')
+        self.default_auth_token = getattr(config, 'COMFYUI_AUTH_TOKEN', '') or None
         self._client: Optional[ComfyUIClient] = None
 
     async def get_client(
@@ -565,19 +566,21 @@ class ComfyUIModule:
         Returns:
             ComfyUIClient: 客户端实例
         """
+        # 使用传入参数，如果为空则使用默认配置
         url = server_url or self.default_server_url
+        token = auth_token if auth_token is not None else self.default_auth_token
 
         # 如果客户端已存在且配置相同，则复用
         if self._client is not None:
             if (self._client.server_url == url and
-                self._client.auth_token == auth_token and
+                self._client.auth_token == token and
                 self._client.username == username and
                 self._client.password == password):
                 return self._client
 
         self._client = ComfyUIClient(
             server_url=url,
-            auth_token=auth_token,
+            auth_token=token,
             username=username,
             password=password
         )
