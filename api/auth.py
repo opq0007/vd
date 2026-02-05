@@ -7,6 +7,8 @@
 import jwt
 from datetime import datetime, timedelta
 from typing import Optional, Dict, Any
+import hashlib
+import secrets
 
 from fastapi import HTTPException, Security, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
@@ -21,6 +23,9 @@ security_optional = HTTPBearer(auto_error=False)  # 新增：用于可选的toke
 
 class AuthService:
     """认证服务类"""
+
+    # 会话存储：{session_id: {"username": str, "expire_time": datetime}}
+    _sessions: Dict[str, Dict[str, Any]] = {}
 
     @staticmethod
     def create_access_token(data: Dict[str, Any], expires_delta: Optional[timedelta] = None) -> str:
@@ -100,11 +105,114 @@ class AuthService:
 
         Returns:
             bool: 凭据是否有效
-        """
-        import hashlib
 
-        hashed_password = hashlib.sha256(password.encode()).hexdigest()
-        return config.USERS.get(username) == hashed_password
+        注意：
+        - 只支持 admin 用户
+        - 密码必须与 API_TOKEN 配置值一致
+        - 实现 API 和界面鉴权的统一
+        """
+        # 只验证 admin 用户
+        if username != config.GRADIO_USERNAME:
+            Logger.warning(f"Invalid username attempt: {username}")
+            return False
+        
+        # 验证密码是否与 API_TOKEN 一致
+        if password != config.GRADIO_PASSWORD:
+            Logger.warning(f"Invalid password attempt for user: {username}")
+            return False
+        
+        return True
+
+    @staticmethod
+    def create_gradio_session(username: str) -> str:
+        """
+        创建 Gradio 界面登录会话
+
+        Args:
+            username: 用户名
+
+        Returns:
+            str: 会话ID
+        """
+        # 生成随机会话ID
+        session_id = secrets.token_urlsafe(32)
+        
+        # 计算过期时间
+        expire_time = datetime.utcnow() + timedelta(seconds=config.GRADIO_AUTH_TIMEOUT)
+        
+        # 存储会话信息
+        AuthService._sessions[session_id] = {
+            "username": username,
+            "expire_time": expire_time
+        }
+        
+        Logger.info(f"Gradio session created for user: {username}, session_id: {session_id}")
+        return session_id
+
+    @staticmethod
+    def verify_gradio_session(session_id: str) -> Optional[str]:
+        """
+        验证 Gradio 界面会话
+
+        Args:
+            session_id: 会话ID
+
+        Returns:
+            Optional[str]: 用户名，如果会话无效则返回None
+        """
+        if session_id not in AuthService._sessions:
+            Logger.warning(f"Invalid Gradio session: {session_id}")
+            return None
+        
+        session = AuthService._sessions[session_id]
+        
+        # 检查会话是否过期
+        if datetime.utcnow() > session["expire_time"]:
+            Logger.info(f"Gradio session expired: {session_id}")
+            del AuthService._sessions[session_id]
+            return None
+        
+        return session["username"]
+
+    @staticmethod
+    def revoke_gradio_session(session_id: str) -> bool:
+        """
+        撤销 Gradio 界面会话
+
+        Args:
+            session_id: 会话ID
+
+        Returns:
+            bool: 是否成功撤销
+        """
+        if session_id in AuthService._sessions:
+            username = AuthService._sessions[session_id]["username"]
+            del AuthService._sessions[session_id]
+            Logger.info(f"Gradio session revoked for user: {username}, session_id: {session_id}")
+            return True
+        return False
+
+    @staticmethod
+    def cleanup_expired_sessions() -> int:
+        """
+        清理过期的会话
+
+        Returns:
+            int: 清理的会话数量
+        """
+        current_time = datetime.utcnow()
+        expired_sessions = [
+            session_id for session_id, session in AuthService._sessions.items()
+            if current_time > session["expire_time"]
+        ]
+        
+        for session_id in expired_sessions:
+            del AuthService._sessions[session_id]
+        
+        if expired_sessions:
+            Logger.info(f"Cleaned up {len(expired_sessions)} expired Gradio sessions")
+        
+        return len(expired_sessions)
 
 
 async def verify_token(credentials: Optional[HTTPAuthorizationCredentials] = Security(security_optional)) -> Optional[Dict[str, Any]]:

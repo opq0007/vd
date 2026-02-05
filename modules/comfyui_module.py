@@ -67,12 +67,24 @@ class ComfyUIClient:
         """
         获取认证头
 
+        支持 ComfyUI 常见的认证方式：
+        1. Bearer Token (标准): Authorization: Bearer <token>
+        2. 自定义头部: x-comfyui-token: <token>
+        3. Cookie: comfyui_token=<token>
+
         Returns:
             Dict[str, str]: 认证头字典
         """
         headers = {}
         if self.auth_token:
-            headers['Authorization'] = f'Bearer {self.auth_token}'
+            # 清理 token：移除已存在的 "Bearer " 或 "bearer " 前缀
+            clean_token = self.auth_token
+            if clean_token.lower().startswith('bearer '):
+                clean_token = clean_token[7:].strip()  # 移除 "Bearer " 或 "bearer " 前缀
+
+            # 设置标准的 Bearer token
+            headers['Authorization'] = f'Bearer {clean_token}'
+
         return headers
 
     def _get_auth(self) -> Optional[aiohttp.BasicAuth]:
@@ -110,6 +122,10 @@ class ComfyUIClient:
             headers = self._get_auth_headers()
             auth = self._get_auth()
 
+            # 调试日志：打印认证信息
+            Logger.info(f"连接 ComfyUI 服务器: {self.server_url}")
+            Logger.info(f"认证方式: {'Bearer Token' if self.auth_token else 'Basic Auth' if auth else 'None'}")
+
             async with self.session.get(
                 f"{self.server_url}/system_stats",
                 headers=headers,
@@ -120,6 +136,9 @@ class ComfyUIClient:
                     return True
                 elif response.status == 401:
                     Logger.error(f"ComfyUI 服务器认证失败: {response.status}")
+                    # 打印响应内容以便调试
+                    error_text = await response.text()
+                    Logger.error(f"认证失败响应内容: {error_text}")
                     return False
                 else:
                     Logger.error(f"ComfyUI 服务器响应异常: {response.status}")
@@ -525,6 +544,7 @@ class ComfyUIModule:
         """
         from config import config
         self.default_server_url = server_url or getattr(config, 'COMFYUI_SERVER_URL', 'http://127.0.0.1:8188')
+        self.default_auth_token = getattr(config, 'COMFYUI_AUTH_TOKEN', '') or None
         self._client: Optional[ComfyUIClient] = None
 
     async def get_client(
@@ -546,19 +566,21 @@ class ComfyUIModule:
         Returns:
             ComfyUIClient: 客户端实例
         """
+        # 使用传入参数，如果为空则使用默认配置
         url = server_url or self.default_server_url
+        token = auth_token if auth_token is not None else self.default_auth_token
 
         # 如果客户端已存在且配置相同，则复用
         if self._client is not None:
             if (self._client.server_url == url and
-                self._client.auth_token == auth_token and
+                self._client.auth_token == token and
                 self._client.username == username and
                 self._client.password == password):
                 return self._client
 
         self._client = ComfyUIClient(
             server_url=url,
-            auth_token=auth_token,
+            auth_token=token,
             username=username,
             password=password
         )
