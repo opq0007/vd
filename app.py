@@ -266,7 +266,62 @@ def create_login_interface():
 def create_gradio_interface():
     """创建整合版 Gradio 界面"""
 
-    custom_css = get_custom_css()
+    # 扩展 CSS：添加登录界面和用户栏样式
+    extended_css = get_custom_css() + """
+    /* 登录界面样式 - 紧凑布局 */
+    .login-header {
+        text-align: center;
+        padding: 15px 0;
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        border-radius: 12px 12px 0 0;
+        margin: -10px -10px 15px -10px;
+    }
+    .login-title-text {
+        color: white;
+        font-size: 20px;
+        font-weight: 600;
+        margin: 0;
+    }
+    .login-info {
+        margin-top: 15px;
+        padding: 12px;
+        background: #f8f9fa;
+        border-radius: 8px;
+        color: #666;
+        font-size: 12px;
+    }
+    .login-info p {
+        margin: 4px 0;
+    }
+    
+    /* 用户栏样式 */
+    .user-bar {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 10px 16px;
+        background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
+        border-radius: 8px;
+        margin-bottom: 12px;
+        color: white;
+    }
+    .user-info {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        font-size: 14px;
+    }
+    .user-avatar {
+        width: 28px;
+        height: 28px;
+        border-radius: 50%;
+        background: rgba(255,255,255,0.3);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 14px;
+    }
+    """
 
     # 使用 kwargs 来避免 Gradio 6.0+ 的警告
     blocks_kwargs = {
@@ -277,142 +332,186 @@ def create_gradio_interface():
 
     with gr.Blocks(**blocks_kwargs) as demo:
         # 添加自定义 CSS 样式
-        gr.HTML(f"<style>{custom_css}</style>")
+        gr.HTML(f"<style>{extended_css}</style>")
         
-        # 会话状态（用于鉴权）
+        # ==================== 状态管理 ====================
         session_state = gr.State(value="")
         is_logged_in = gr.State(value=False)
+        current_username = gr.State(value="")
         
-        # 使用 Column 来包裹登录界面和主界面，避免水平排列导致的布局问题
-        with gr.Column():
-            # 主界面（需要登录后才能访问）
-            # 使用 Group 来控制整个主界面的可见性，而不是 Row
-            with gr.Group(visible=not config.ENABLE_TOKEN_AUTH) as main_group:
-                # 页面头部
-                create_header()
-
-                # 定义状态变量
-                job_completed = gr.State(value=False)
-
-                with gr.Tabs():
-                    # 语音合成标签页
-                    with gr.TabItem("🎤 语音合成"):
-                        create_tts_interface()
-
-                    # 高级字幕生成标签页
-                    with gr.TabItem("高级字幕生成"):
-                        create_subtitle_interface()
-
-                    # 图像处理标签页
-                    with gr.TabItem("🖼️ 图像处理"):
-                        create_image_processing_interface()
-
-                    # 自动剪辑标签页
-                    with gr.TabItem("✂️ 自动剪辑"):
-                        create_video_editor_interface()
-
-                    # 视频转场特效标签页
-                    with gr.TabItem("视频转场特效"):
-                        create_transition_interface()
-
-                    # 视频合并标签页
-                    with gr.TabItem("🔗 视频合并"):
-                        create_video_merge_interface()
-
-                    # 综合处理标签页
-                    with gr.TabItem("🚀 综合处理"):
-                        create_batch_processing_interface()
-
-                    # 模板管理标签页
-                    with gr.TabItem("📁 模板管理"):
-                        get_template_manager_ui()
-
-                    # 文件持久化标签页
-                    with gr.TabItem("☁️ 文件持久化"):
-                        create_file_persistence_interface()
-
-                    # ComfyUI 集成标签页
-                    with gr.TabItem("🎨 ComfyUI 集成"):
-                        create_comfyui_interface()
-
-                    # 通用HTTP集成标签页
-                    with gr.TabItem("🌐 通用HTTP集成"):
-                        create_http_integration_interface()
-
-                    # 邮件发送标签页
-                    with gr.TabItem("📧 邮件发送"):
-                        create_email_interface()
+        # ==================== 登录界面（仅鉴权启用时显示）====================
+        with gr.Column(visible=config.ENABLE_TOKEN_AUTH) as login_column:
+            with gr.Group():
+                # 紧凑的登录标题
+                gr.HTML("""
+                <div class="login-header">
+                    <h2 class="login-title-text">🔐 用户登录</h2>
+                </div>
+                """)
+                
+                username_input = gr.Textbox(
+                    label="用户名",
+                    placeholder="请输入用户名",
+                    type="text"
+                )
+                password_input = gr.Textbox(
+                    label="密码",
+                    placeholder="请输入密码",
+                    type="password"
+                )
+                
+                with gr.Row():
+                    login_btn = gr.Button("登录", variant="primary", scale=3)
+                    clear_btn = gr.Button("清空", variant="secondary", scale=1)
+                
+                login_message = gr.Textbox(
+                    label="",
+                    visible=False,
+                    interactive=False
+                )
+                
+                # 登录说明（简化）
+                gr.HTML("""
+                <div class="login-info">
+                    <p>用户名：<code>admin</code> | 密码：<code>API_TOKEN</code> 配置值</p>
+                </div>
+                """)
+                
+                # 登录处理临时状态
+                login_success_temp = gr.State(value=False)
+                login_msg_temp = gr.State(value="")
+                login_sid_temp = gr.State(value="")
         
-        # 如果启用了鉴权，显示登录界面
+        # ==================== 主界面 ====================
+        with gr.Column(visible=not config.ENABLE_TOKEN_AUTH) as main_column:
+            # 用户信息栏（仅鉴权启用时显示）
+            logout_btn = None
+            if config.ENABLE_TOKEN_AUTH:
+                with gr.Group() as user_bar:
+                    with gr.Row():
+                        with gr.Column(scale=4):
+                            gr.HTML("""
+                            <div class="user-bar">
+                                <div class="user-info">
+                                    <div class="user-avatar">👤</div>
+                                    <span>当前用户：<strong>admin</strong></span>
+                                </div>
+                            </div>
+                            """)
+                        with gr.Column(scale=1, min_width=100):
+                            logout_btn = gr.Button("退出登录", variant="secondary", size="sm")
+            
+            # 页面头部
+            create_header()
+
+            # 定义状态变量
+            job_completed = gr.State(value=False)
+
+            with gr.Tabs():
+                # 语音合成标签页
+                with gr.TabItem("🎤 语音合成"):
+                    create_tts_interface()
+
+                # 高级字幕生成标签页
+                with gr.TabItem("📝 字幕生成"):
+                    create_subtitle_interface()
+
+                # 图像处理标签页
+                with gr.TabItem("🖼️ 图像处理"):
+                    create_image_processing_interface()
+
+                # 自动剪辑标签页
+                with gr.TabItem("✂️ 自动剪辑"):
+                    create_video_editor_interface()
+
+                # 视频转场特效标签页
+                with gr.TabItem("🎬 视频转场"):
+                    create_transition_interface()
+
+                # 视频合并标签页
+                with gr.TabItem("🔗 视频合并"):
+                    create_video_merge_interface()
+
+                # 综合处理标签页
+                with gr.TabItem("🚀 综合处理"):
+                    create_batch_processing_interface()
+
+                # 模板管理标签页
+                with gr.TabItem("📁 模板管理"):
+                    get_template_manager_ui()
+
+                # 文件持久化标签页
+                with gr.TabItem("☁️ 文件持久化"):
+                    create_file_persistence_interface()
+
+                # ComfyUI 集成标签页
+                with gr.TabItem("🎨 ComfyUI"):
+                    create_comfyui_interface()
+
+                # 通用HTTP集成标签页
+                with gr.TabItem("🌐 HTTP集成"):
+                    create_http_integration_interface()
+
+                # 邮件发送标签页
+                with gr.TabItem("📧 邮件发送"):
+                    create_email_interface()
+        
+        # ==================== 事件绑定（必须在所有组件定义之后）====================
         if config.ENABLE_TOKEN_AUTH:
-            with gr.Row(visible=True) as login_row:
-                with gr.Column():
-                    gr.Markdown("## 🔐 用户登录")
-                    username_input = gr.Textbox(label="用户名", placeholder="请输入用户名")
-                    password_input = gr.Textbox(label="密码", placeholder="请输入密码", type="password")
-                    login_btn = gr.Button("登录", variant="primary")
-                    login_message = gr.Textbox(label="", visible=False, interactive=False)
-                    
-                    # 登录处理
-                    # 临时状态变量，用于在 login_user 和 handle_login_result 之间传递数据
-                    login_success = gr.State(value=False)
-                    login_msg = gr.State(value="")
-                    login_sid = gr.State(value="")
-                    
-                    def handle_login_result(success, message, session_id):
-                        """处理登录结果"""
-                        if success:
-                            # 登录成功：隐藏登录行，显示主界面，更新会话状态
-                            return (
-                                gr.update(visible=False),  # login_row
-                                gr.update(visible=True, value="✅ " + message),  # login_message
-                                session_id,  # session_state
-                                True  # is_logged_in
-                            )
-                        else:
-                            # 登录失败：保持登录行显示，显示错误消息
-                            return (
-                                gr.update(visible=True),  # login_row
-                                gr.update(visible=True, value="❌ " + message),  # login_message
-                                "",  # session_state
-                                False  # is_logged_in
-                            )
-                    
-                    login_btn.click(
-                        fn=login_user,
-                        inputs=[username_input, password_input],
-                        outputs=[login_success, login_msg, login_sid]
-                    ).then(
-                        fn=handle_login_result,
-                        inputs=[login_success, login_msg, login_sid],
-                        outputs=[login_row, login_message, session_state, is_logged_in]
+            def handle_login(success, message, session_id):
+                """处理登录结果，切换界面"""
+                if success:
+                    return (
+                        gr.update(visible=False),    # login_column 隐藏
+                        gr.update(visible=True),     # main_column 显示
+                        session_id,                   # session_state
+                        True,                         # is_logged_in
+                        "admin",                      # current_username
+                        gr.update(visible=False),    # login_message
+                    )
+                else:
+                    return (
+                        gr.update(visible=True),     # login_column 保持显示
+                        gr.update(visible=False),    # main_column 保持隐藏
+                        "",                           # session_state
+                        False,                        # is_logged_in
+                        "",                           # current_username
+                        gr.update(visible=True, value="❌ " + message),  # 显示错误
                     )
             
-            gr.HTML("""
-            <div style="margin-top: 10px; padding: 10px; background: #e3f2fd; border-radius: 5px; color: #1565c0; font-size: 12px;">
-                <p><strong>登录说明：</strong></p>
-                <p>用户名：<code>admin</code></p>
-                <p>密码：<code>API_TOKEN</code> 配置值</p>
-                <p style="margin-top: 10px; font-size: 11px; color: #999;">
-                    💡 提示：界面登录密码与 API Token 统一，使用相同的配置值
-                </p>
-            </div>
-            """)
-
-        # 登录状态变化时更新界面显示
-        def update_visibility(logged_in):
-            """根据登录状态更新界面可见性"""
-            if logged_in:
-                return gr.update(visible=True)
-            else:
-                return gr.update(visible=not config.ENABLE_TOKEN_AUTH)
-
-        # 监听 is_logged_in 状态变化
-        is_logged_in.change(
-            fn=update_visibility,
-            inputs=[is_logged_in],
-            outputs=[main_group]
-        )
+            def handle_logout():
+                """处理登出"""
+                return (
+                    gr.update(visible=True),   # login_column 显示
+                    gr.update(visible=False),  # main_column 隐藏
+                    "",                         # session_state
+                    False,                      # is_logged_in
+                    "",                         # current_username
+                    gr.update(visible=False),  # login_message
+                )
+            
+            # 登录按钮事件
+            login_btn.click(
+                fn=login_user,
+                inputs=[username_input, password_input],
+                outputs=[login_success_temp, login_msg_temp, login_sid_temp]
+            ).then(
+                fn=handle_login,
+                inputs=[login_success_temp, login_msg_temp, login_sid_temp],
+                outputs=[login_column, main_column, session_state, is_logged_in, current_username, login_message]
+            )
+            
+            # 清空按钮事件
+            clear_btn.click(
+                fn=lambda: ("", "", gr.update(visible=False)),
+                outputs=[username_input, password_input, login_message]
+            )
+            
+            # 登出按钮事件
+            logout_btn.click(
+                fn=handle_logout,
+                outputs=[login_column, main_column, session_state, is_logged_in, current_username, login_message]
+            )
 
     return demo
 
