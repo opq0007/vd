@@ -29,8 +29,8 @@ class ImageProcessingModule:
         """获取RMBG模型路径"""
         if self._rmbg_model_path is None:
             # 模型存储在 models/ 目录下，文件名为 rmbg-1.4.onnx
-            model_path = Path(config.MODELS_DIR) / "rmbg-1.4.onnx"
-            
+            # model_path = Path(config.MODELS_DIR) / "rmbg-1.4.onnx"
+            model_path = Path(config.MODELS_DIR) / "InSPyReNet.onnx"
             self._rmbg_model_path = model_path
         
         return self._rmbg_model_path
@@ -39,7 +39,7 @@ class ImageProcessingModule:
         """加载RMBG模型"""
         if self._rmbg_session is None:
             model_path = self._get_rmbg_model_path()
-            
+        # https://huggingface.co/OS-Software/InSPyReNet-SwinB-Plus-Ultra-ONNX/blob/main/onnx/model.onnx
             if not model_path.exists():
                 raise FileNotFoundError(
                     f"RMBG模型文件不存在: {model_path}\n"
