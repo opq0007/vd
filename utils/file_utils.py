@@ -33,7 +33,7 @@ class FileUtils:
         job_dir_name = f"job_{date_str}-{time_str}"
         job_dir = output_dir / job_dir_name
         job_dir.mkdir(exist_ok=True)
-        return job_dir
+        return job_dir.resolve()
 
     @staticmethod
     def generate_job_id() -> str:

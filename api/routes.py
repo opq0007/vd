@@ -23,6 +23,7 @@ from modules.image_processing_module import image_processing_module
 from modules.email_module import email_module
 from utils.logger import Logger
 from utils.media_processor import MediaProcessor
+from utils.font_manager import font_manager
 import os
 
 
@@ -443,6 +444,8 @@ def register_routes(app) -> None:
                     error_code="TTS_SYNTHESIZE_FAILED"
                 )
         except Exception as e:
+            import traceback
+            Logger.error(f"TTS 合成异常: {traceback.format_exc()}")
             return response_formatter.wrap_exception(e, "语音合成失败")
 
     @api_router.post("/tts/save_ref")
@@ -791,8 +794,11 @@ def register_routes(app) -> None:
     # ==================== 视频转场 ====================
     @api_router.post("/transition/apply")
     async def apply_transition(
-        video1: UploadFile = File(...),
-        video2: UploadFile = File(...),
+        input_type: str = Form("upload"),
+        video1: UploadFile = File(None),
+        video2: UploadFile = File(None),
+        video1_path: str = Form(None),
+        video2_path: str = Form(None),
         transition_name: str = Form("crossfade"),
         total_frames: int = Form(100),
         fps: int = Form(25),
@@ -804,8 +810,11 @@ def register_routes(app) -> None:
         应用转场效果
 
         Args:
-            video1: 第一个视频文件
-            video2: 第二个视频文件
+            input_type: 输入类型 (upload/path)
+            video1: 第一个视频文件（upload模式）
+            video2: 第二个视频文件（upload模式）
+            video1_path: 第一个视频文件路径（path模式）
+            video2_path: 第二个视频文件路径（path模式）
             transition_name: 转场效果名称
             total_frames: 转场帧数
             fps: 帧率
@@ -820,18 +829,40 @@ def register_routes(app) -> None:
             from utils.file_utils import FileUtils
             job_dir = FileUtils.create_job_dir()
 
-            video1_path = job_dir / video1.filename
-            video2_path = job_dir / video2.filename
+            # 处理视频文件
+            actual_video1_path = None
+            actual_video2_path = None
 
-            with open(video1_path, "wb") as f:
-                f.write(await video1.read())
+            if input_type == "upload":
+                if not video1 or not video2:
+                    return response_formatter.error(
+                        message="请上传两个视频文件",
+                        error_code="NO_VIDEO_UPLOADED"
+                    )
 
-            with open(video2_path, "wb") as f:
-                f.write(await video2.read())
+                video1_path_obj = job_dir / video1.filename
+                video2_path_obj = job_dir / video2.filename
+
+                with open(video1_path_obj, "wb") as f:
+                    f.write(await video1.read())
+
+                with open(video2_path_obj, "wb") as f:
+                    f.write(await video2.read())
+
+                actual_video1_path = str(video1_path_obj)
+                actual_video2_path = str(video2_path_obj)
+            else:  # path
+                if not video1_path or not video1_path.strip() or not video2_path or not video2_path.strip():
+                    return response_formatter.error(
+                        message="请提供两个视频文件路径",
+                        error_code="NO_VIDEO_PATH"
+                    )
+                actual_video1_path = video1_path
+                actual_video2_path = video2_path
 
             result = await transition_module.apply_transition(
-                video1_path=str(video1_path),
-                video2_path=str(video2_path),
+                video1_path=actual_video1_path,
+                video2_path=actual_video2_path,
                 transition_name=transition_name,
                 total_frames=total_frames,
                 fps=fps,
@@ -910,7 +941,7 @@ def register_routes(app) -> None:
         audio_path: str = Form(None),
         # 花字配置
         flower_text: str = Form(None),
-        flower_font: str = Form("Microsoft YaHei"),
+        flower_font: str = Form(None),
         flower_size: int = Form(40),
         flower_color: str = Form("#FFFFFF"),
         flower_color_mode: str = Form("单色"),
@@ -957,7 +988,7 @@ def register_routes(app) -> None:
         video_end_time: str = Form("99:59:59"),
         # 水印配置
         watermark_text: str = Form(None),
-        watermark_font: str = Form("黑体.TTF"),
+        watermark_font: str = Form(None),
         watermark_size: int = Form(20),
         watermark_color: str = Form("#FFFFFF"),
         watermark_timing_type: str = Form("时间戳范围"),
@@ -1061,6 +1092,9 @@ def register_routes(app) -> None:
             # 准备花字配置
             flower_config = None
             if flower_text and flower_text.strip():
+                # 如果没有指定字体，使用fonts目录下的默认字体
+                if not flower_font:
+                    flower_font = font_manager.get_default_font()
                 flower_config = {
                     'text': flower_text,
                     'font': flower_font,
@@ -1123,6 +1157,9 @@ def register_routes(app) -> None:
             # 准备水印配置
             watermark_config = None
             if watermark_text and watermark_text.strip():
+                # 如果没有指定字体，使用fonts目录下的默认字体
+                if not watermark_font:
+                    watermark_font = font_manager.get_default_font()
                 watermark_config = {
                     'text': watermark_text,
                     'font': watermark_font,
@@ -1188,6 +1225,28 @@ def register_routes(app) -> None:
             )
         except Exception as e:
             return response_formatter.wrap_exception(e, "获取视频效果列表失败")
+
+    @api_router.get("/video_editor/fonts")
+    async def get_available_fonts(
+        payload: Dict[str, Any] = Depends(verify_token)
+    ) -> Dict[str, Any]:
+        """
+        获取可用的字体列表
+
+        Args:
+            payload: 认证载荷
+
+        Returns:
+            Dict[str, Any]: 字体列表
+        """
+        try:
+            fonts = font_manager.get_available_fonts()
+            return response_formatter.success(
+                data={"fonts": fonts},
+                message="获取字体列表成功"
+            )
+        except Exception as e:
+            return response_formatter.wrap_exception(e, "获取字体列表失败")
 
     @api_router.post("/video_editor/watermark")
     async def add_watermark(
@@ -1440,7 +1499,9 @@ def register_routes(app) -> None:
     # ==================== 视频合并 ====================
     @api_router.post("/video_merge/merge")
     async def merge_videos(
-        video_paths: str = Form(...),
+        input_type: str = Form("path"),
+        video_files: list[UploadFile] = File(None),
+        video_paths: str = Form(None),
         out_basename: str = Form(None),
         delete_intermediate_videos: bool = Form(True),
         payload: Dict[str, Any] = Depends(verify_token)
@@ -1449,7 +1510,9 @@ def register_routes(app) -> None:
         合并多个视频文件
 
         Args:
-            video_paths: 视频文件路径列表，用换行符分隔
+            input_type: 输入类型 (upload/path)
+            video_files: 上传的视频文件列表（upload模式）
+            video_paths: 视频文件路径列表，用换行符分隔（path模式）
             out_basename: 输出文件名前缀
             delete_intermediate_videos: 是否删除中间视频文件（默认为True）
             payload: 认证载荷
@@ -1459,10 +1522,41 @@ def register_routes(app) -> None:
         """
         try:
             from modules.video_merge_module import video_merge_module
+            from utils.file_utils import FileUtils
+
+            # 处理视频文件
+            actual_video_paths = []
+
+            if input_type == "upload":
+                if not video_files or len(video_files) < 2:
+                    return response_formatter.error(
+                        message="请至少上传两个视频文件",
+                        error_code="NO_VIDEO_UPLOADED"
+                    )
+
+                job_dir = FileUtils.create_job_dir()
+                for video_file in video_files:
+                    video_path = job_dir / video_file.filename
+                    with open(video_path, "wb") as f:
+                        f.write(await video_file.read())
+                    actual_video_paths.append(str(video_path))
+            else:  # path
+                if not video_paths or not video_paths.strip():
+                    return response_formatter.error(
+                        message="请提供视频文件路径列表",
+                        error_code="NO_VIDEO_PATH"
+                    )
+                actual_video_paths = [p.strip() for p in video_paths.strip().split('\n') if p.strip()]
+
+                if len(actual_video_paths) < 2:
+                    return response_formatter.error(
+                        message="请至少提供两个视频文件路径",
+                        error_code="INSUFFICIENT_VIDEO_PATHS"
+                    )
 
             # 执行视频合并
             result = await video_merge_module.merge_videos(
-                video_paths=video_paths,
+                video_paths='\n'.join(actual_video_paths),
                 out_basename=out_basename,
                 delete_intermediate_videos=delete_intermediate_videos
             )

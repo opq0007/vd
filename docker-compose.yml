@@ -1,0 +1,33 @@
+version: '3.8'
+
+services:
+  vd-service:
+    build:
+      context: .
+      dockerfile: Dockerfile.react
+    container_name: vd-service
+    ports:
+      - "7860:7860"
+    environment:
+      - API_TOKEN=opq#key
+      - SECRET_KEY=your-secret-key-change-in-production
+      - ENABLE_GRADIO_UI=false
+      - LOG_LEVEL=INFO
+      - FW_MODEL=small
+      - FW_DEVICE=cpu
+      - FW_COMPUTE=int8
+      - VOX_ONNX_DEVICE=cpu
+      - VOX_ONNX_OPTIMIZE=1
+      - VOX_ONNX_DTYPE=fp32
+    volumes:
+      - ./uploads:/app/uploads
+      - ./output:/app/output
+      - ./models:/app/models
+      - ./logs:/app/logs
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:7860/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
