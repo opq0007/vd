@@ -7,7 +7,7 @@ API 路由模块
 from pathlib import Path
 from typing import Dict, Any, Optional
 
-from fastapi import APIRouter, File, UploadFile, Form, HTTPException, Depends, Query
+from fastapi import APIRouter, File, UploadFile, Form, HTTPException, Depends, Query, Request
 from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel
 import httpx

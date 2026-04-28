@@ -17,6 +17,11 @@ export default defineConfig({
         target: 'http://localhost:7860',
         changeOrigin: true,
       },
+      '/remotion': {
+        target: 'http://localhost:3001',
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/remotion/, '/api'),
+      },
       '/uploads': {
         target: 'http://localhost:7860',
         changeOrigin: true,
