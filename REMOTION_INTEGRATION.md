@@ -65,7 +65,7 @@ python app.py
 
 **2. 启动 Remotion API 服务**
 ```bash
-cd D:\workspace\c\ai\iflow\vd\frontend\remo-fects\api
+cd D:\workspace\c\ai\iflow\vd\remo-fects\api
 npm install
 npm run api
 ```
@@ -126,16 +126,16 @@ vd/
 ├── frontend/
 │   ├── vite.config.ts              # Vite 配置（添加 Remotion 代理）
 │   ├── src/
-│   │   ├── pages/
-│   │   │   └── RemotionStudio.tsx  # Remotion 工作室页面
-│   │   ├── services/
-│   │   │   └── remotionApi.ts      # Remotion API 客户端
-│   │   └── components/
-│   │       └── RemotionEffects/    # Remotion 组件
-│   │           ├── EffectSelector.tsx
-│   │           ├── EffectConfig.tsx
-│   │           └── EffectRender.tsx
-│   └── remo-fects/
+│      ├── pages/
+│      │   └── RemotionStudio.tsx  # Remotion 工作室页面
+│      ├── services/
+│      │   └── remotionApi.ts      # Remotion API 客户端
+│      └── components/
+│          └── RemotionEffects/    # Remotion 组件
+│              ├── EffectSelector.tsx
+│              ├── EffectConfig.tsx
+│              └── EffectRender.tsx
+│── remo-fects/
 │       └── api/                    # 独立的 Remotion API 服务
 │           ├── server.js
 │           ├── render.js
@@ -194,7 +194,7 @@ const blob = await remotionApi.downloadJobOutput(result.jobId)
 
 1. **服务依赖**：Remotion API 服务必须先启动，前端才能正常调用
 2. **端口冲突**：确保端口 3001 未被占用
-3. **文件路径**：Remotion API 的输出文件保存在 `frontend/remo-fects/api/outputs/`
+3. **文件路径**：Remotion API 的输出文件保存在 `remo-fects/api/outputs/`
 4. **跨域问题**：Vite 代理已处理跨域，无需额外配置
 
 ## 更新维护
@@ -202,7 +202,7 @@ const blob = await remotionApi.downloadJobOutput(result.jobId)
 ### 更新 remo-fects 项目
 
 ```bash
-cd frontend/remo-fects
+cd remo-fects
 git pull
 cd api
 npm install
