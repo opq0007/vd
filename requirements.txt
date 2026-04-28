@@ -5,6 +5,7 @@ python-multipart
 aiofiles
 PyJWT
 requests
+httpx
 playwright>=1.40.0
 opencv-python
 numpy

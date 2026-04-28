@@ -8,8 +8,10 @@ from pathlib import Path
 from typing import Dict, Any, Optional
 
 from fastapi import APIRouter, File, UploadFile, Form, HTTPException, Depends, Query
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel
+import httpx
+import asyncio
 
 from config import config
 from api.auth import AuthService, verify_token, verify_token_required
@@ -3517,6 +3519,71 @@ def register_routes(app) -> None:
                 )
         except Exception as e:
             return response_formatter.wrap_exception(e, "SMTP连接测试失败")
+
+    @api_router.get("/comfyui/proxy/view")
+    async def comfyui_proxy_view(
+        filename: str = Query(..., description="文件名"),
+        subfolder: str = Query("", description="子文件夹"),
+        type: str = Query("output", description="文件类型"),
+        server_url: Optional[str] = Query(None, description="ComfyUI 服务器地址"),
+        auth_token: Optional[str] = Query(None, description="ComfyUI 认证 Token"),
+        payload: Dict[str, Any] = Depends(verify_token)
+    ) -> Response:
+        """
+        代理 ComfyUI 的 view 端点，用于获取生成的图片
+
+        Args:
+            filename: 文件名
+            subfolder: 子文件夹
+            type: 文件类型
+            server_url: ComfyUI 服务器地址（不传则使用默认配置）
+            auth_token: ComfyUI 认证 Token（不传则使用默认配置）
+            payload: 认证载荷
+
+        Returns:
+            Response: 图片文件响应
+        """
+        try:
+            url = server_url or getattr(config, 'COMFYUI_SERVER_URL', 'http://127.0.0.1:8188')
+            
+            params = {
+                "filename": filename,
+                "subfolder": subfolder,
+                "type": type
+            }
+            
+            headers = {}
+            clean_token = auth_token or getattr(config, 'COMFYUI_AUTH_TOKEN')
+            if clean_token:
+                if clean_token.lower().startswith('bearer '):
+                    clean_token = clean_token[7:].strip()
+                headers['Authorization'] = f'Bearer {clean_token}'
+            
+            async with httpx.AsyncClient() as client:
+                response = await client.get(
+                    f"{url}/view",
+                    params=params,
+                    headers=headers,
+                    timeout=30.0
+                )
+                
+                if response.status_code == 200:
+                    return Response(
+                        content=response.content,
+                        media_type=response.headers.get('content-type', 'image/png'),
+                        headers={
+                            'Cache-Control': 'public, max-age=3600',
+                        }
+                    )
+                else:
+                    raise HTTPException(
+                        status_code=response.status_code,
+                        detail=f"ComfyUI 服务器返回错误: {response.status_code}"
+                    )
+        except httpx.TimeoutException:
+            raise HTTPException(status_code=504, detail="请求 ComfyUI 服务器超时")
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"代理请求失败: {str(e)}")
 
     # 注册路由器到应用
     app.include_router(api_router)
