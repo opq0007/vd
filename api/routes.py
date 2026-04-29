@@ -41,6 +41,17 @@ class TranscribeRequest(BaseModel):
     beam_size: int = None
 
 
+class OpenAIImageGenerationRequest(BaseModel):
+    """OpenAI 兼容的文生图请求"""
+    model: str = "dall-e-3"
+    prompt: str
+    n: int = 1
+    size: str = "1024x1024"
+    response_format: str = "url"
+    quality: Optional[str] = "standard"
+    style: Optional[str] = "vivid"
+
+
 def register_routes(app) -> None:
     """
     注册所有 API 路由
@@ -3584,6 +3595,113 @@ def register_routes(app) -> None:
             raise HTTPException(status_code=504, detail="请求 ComfyUI 服务器超时")
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"代理请求失败: {str(e)}")
+
+    # ==================== OpenAI 兼容文生图接口 ====================
+    @api_router.post("/comfyui/v1/images/generations")
+    async def openai_image_generation(
+        request: OpenAIImageGenerationRequest,
+        payload: Dict[str, Any] = Depends(verify_token)
+    ) -> Dict[str, Any]:
+        """
+        OpenAI 兼容的文生图接口
+
+        使用 aigc2-t2i.json 工作流生成图像，返回 OpenAI 格式的响应
+
+        Args:
+            request: OpenAI 兼容的文生图请求
+            payload: 认证载荷
+
+        Returns:
+            Dict[str, Any]: OpenAI 格式的响应
+        """
+        try:
+            import json
+            import time
+            from modules.comfyui_module import comfyui_module
+
+            # 解析 size 参数 (格式: "1024x1024")
+            try:
+                width, height = map(int, request.size.split('x'))
+            except (ValueError, AttributeError):
+                width, height = 1024, 1024
+
+            # 生成随机种子
+            seed = int(time.time() * 1000) % 2147483647
+
+            # 准备工作流参数
+            params = {
+                "text": request.prompt,
+                "width": width,
+                "height": height,
+                "seed": seed
+            }
+
+            # 执行工作流
+            result = await comfyui_module.execute_workflow_from_template(
+                workflow_name="aigc2-t2i.json",
+                params=params,
+                timeout=300
+            )
+
+            if not result.get("success"):
+                return response_formatter.error(
+                    message=result.get("error", "图像生成失败"),
+                    error_code="IMAGE_GENERATION_FAILED"
+                )
+
+            # 提取生成的图像
+            output_images = result.get("output_images", [])
+            if not output_images:
+                return response_formatter.error(
+                    message="未生成任何图像",
+                    error_code="NO_IMAGES_GENERATED"
+                )
+
+            # 构建 OpenAI 格式的响应
+            headers = {}
+            clean_token = getattr(config, 'COMFYUI_AUTH_TOKEN')
+            if clean_token:
+                if clean_token.lower().startswith('bearer '):
+                    clean_token = clean_token[7:].strip()
+                headers['Authorization'] = f'Bearer {clean_token}'
+            data = []
+            for i, img_info in enumerate(output_images[:request.n]):
+                image_data = {
+                    "revised_prompt": request.prompt
+                }
+
+                if request.response_format == "b64_json":
+                    # 下载图像并转换为 base64
+                    import base64
+                    from utils.file_utils import FileUtils
+                    job_dir = FileUtils.create_job_dir()
+                    local_path = job_dir / f"generated_{i}.png"
+
+                    async with httpx.AsyncClient() as client:
+                        response = await client.get(img_info["url"], headers=headers, timeout=30)
+                        if response.status_code == 200:
+                            with open(local_path, "wb") as f:
+                                f.write(response.content)
+                            with open(local_path, "rb") as f:
+                                b64_data = base64.b64encode(f.read()).decode('utf-8')
+                            image_data["b64_json"] = b64_data
+                        else:
+                            # 如果下载失败，回退到 URL 格式
+                            image_data["url"] = img_info["url"]
+                else:
+                    image_data["url"] = img_info["url"]
+                data.append(image_data)
+
+            # 返回 OpenAI 格式的响应
+            return {
+                "created": int(time.time()),
+                "data": data
+            }
+
+        except Exception as e:
+            import traceback
+            Logger.error(f"OpenAI 文生图异常: {traceback.format_exc()}")
+            return response_formatter.wrap_exception(e, "文生图失败")
 
     # 注册路由器到应用
     app.include_router(api_router)
