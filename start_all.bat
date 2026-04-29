@@ -11,9 +11,9 @@ echo [2/3] 等待主后端服务启动...
 timeout /t 5 /nobreak > nul
 
 echo [3/3] 启动 Remotion API 服务 (端口 3001)...
-cd frontend\remo-fects\api
+cd remo-fects\api
 start "Remotion API" cmd /k "npm run api"
-cd ..\..\..
+cd ..\..
 
 echo.
 echo ========================================
