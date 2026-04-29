@@ -36,6 +36,11 @@ class RemotionApiClient {
     return response.data
   }
 
+  async getProjectParams(projectId: string): Promise<any> {
+    const response = await this.client.get(`/projects/${projectId}/params`)
+    return response.data
+  }
+
   async createRenderJob(projectId: string, params: Record<string, any>): Promise<{ success: boolean; jobId: string; message: string }> {
     const response = await this.client.post(`/render/${projectId}`, params)
     return response.data

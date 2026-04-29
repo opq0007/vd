@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react'
-import { Card, Form, Input, InputNumber, Select, Switch, ColorPicker, Spin, message } from 'antd'
+import { Card, Form, Input, InputNumber, Select, Switch, message, Spin } from 'antd'
 import { SettingOutlined } from '@ant-design/icons'
 import { remotionApi } from '../../services/remotionApi'
 
@@ -19,6 +19,7 @@ const EffectConfig: React.FC<EffectConfigProps> = ({
   const [form] = Form.useForm()
   const [params, setParams] = useState<Record<string, any>>({})
   const [loading, setLoading] = useState(false)
+  const [projectParams, setProjectParams] = useState<any>(null)
 
   useEffect(() => {
     if (projectId) {
@@ -35,11 +36,9 @@ const EffectConfig: React.FC<EffectConfigProps> = ({
   const loadParams = async () => {
     try {
       setLoading(true)
-      const data = await remotionApi.getProjects()
-      const project = data.find((p) => p.id === projectId)
-      if (project) {
-        setParams({})
-      }
+      const data = await remotionApi.getProjectParams(projectId || '')
+      setProjectParams(data)
+      setParams(data.params || {})
     } catch (error) {
       message.error('加载参数定义失败')
     } finally {
@@ -53,6 +52,104 @@ const EffectConfig: React.FC<EffectConfigProps> = ({
     }
   }
 
+  const renderFormField = (paramName: string, paramDef: any) => {
+    const { type, defaultValue, description, required } = paramDef
+
+    const label = description || paramName
+    const rules = required ? [{ required: true, message: `请输入${label}` }] : []
+
+    switch (type) {
+      case 'string':
+        return (
+          <Form.Item key={paramName} label={label} name={paramName} rules={rules}>
+            <Input placeholder={label} />
+          </Form.Item>
+        )
+
+      case 'number':
+        return (
+          <Form.Item key={paramName} label={label} name={paramName} rules={rules}>
+            <InputNumber style={{ width: '100%' }} />
+          </Form.Item>
+        )
+
+      case 'boolean':
+        return (
+          <Form.Item key={paramName} label={label} name={paramName} valuePropName="checked">
+            <Switch />
+          </Form.Item>
+        )
+
+      case 'array':
+        if (paramName === 'dreams') {
+          return (
+            <Form.Item key={paramName} label={label} name={paramName} rules={rules}>
+              <Select mode="multiple" placeholder="选择梦想职业">
+                <Option value="astronaut">宇航员</Option>
+                <Option value="artist">艺术家</Option>
+                <Option value="racer">赛车手</Option>
+                <Option value="doctor">医生</Option>
+                <Option value="teacher">老师</Option>
+                <Option value="scientist">科学家</Option>
+                <Option value="musician">音乐家</Option>
+                <Option value="athlete">运动员</Option>
+                <Option value="chef">厨师</Option>
+                <Option value="pilot">飞行员</Option>
+              </Select>
+            </Form.Item>
+          )
+        }
+        return (
+          <Form.Item key={paramName} label={label} name={paramName} rules={rules}>
+            <Select mode="tags" placeholder="输入内容，按回车添加" />
+          </Form.Item>
+        )
+
+      case 'select':
+        return (
+          <Form.Item key={paramName} label={label} name={paramName} rules={rules}>
+            <Select placeholder={label}>
+              {paramDef.options?.map((opt: any) => (
+                <Option key={opt.value} value={opt.value}>
+                  {opt.label}
+                </Option>
+              ))}
+            </Select>
+          </Form.Item>
+        )
+
+      default:
+        return null
+    }
+  }
+
+  const renderPresetSelector = () => {
+    if (!projectParams?.presets || Object.keys(projectParams.presets).length === 0) {
+      return null
+    }
+
+    return (
+      <Form.Item label="预设模板" name="_preset">
+        <Select placeholder="选择预设模板">
+          {Object.entries(projectParams.presets).map(([key, preset]: [string, any]) => (
+            <Option key={key} value={key}>
+              {preset.name} - {preset.description}
+            </Option>
+          ))}
+        </Select>
+      </Form.Item>
+    )
+  }
+
+  const handlePresetChange = (presetKey: string) => {
+    if (!projectParams?.presets || !presetKey) return
+
+    const preset = projectParams.presets[presetKey]
+    if (preset) {
+      form.setFieldsValue(preset)
+    }
+  }
+
   return (
     <Card title="特效配置" extra={<SettingOutlined />}>
       <Spin spinning={loading}>
@@ -60,37 +157,13 @@ const EffectConfig: React.FC<EffectConfigProps> = ({
           form={form}
           layout="vertical"
           onValuesChange={handleValuesChange}
-          initialValues={{
-            width: 720,
-            height: 1280,
-            fps: 24,
-            duration: 10,
-            words: ['福', '禄', '寿'],
-          }}
+          initialValues={initialValues}
         >
-          <Form.Item label="视频宽度" name="width">
-            <InputNumber min={480} max={1920} style={{ width: '100%' }} />
-          </Form.Item>
+          {renderPresetSelector()}
 
-          <Form.Item label="视频高度" name="height">
-            <InputNumber min={480} max={2160} style={{ width: '100%' }} />
-          </Form.Item>
-
-          <Form.Item label="帧率" name="fps">
-            <Select>
-              <Option value={24}>24 FPS</Option>
-              <Option value={30}>30 FPS</Option>
-              <Option value={60}>60 FPS</Option>
-            </Select>
-          </Form.Item>
-
-          <Form.Item label="视频时长（秒）" name="duration">
-            <InputNumber min={1} max={60} style={{ width: '100%' }} />
-          </Form.Item>
-
-          <Form.Item label="文字列表" name="words">
-            <Select mode="tags" placeholder="输入文字，按回车添加" />
-          </Form.Item>
+          {projectParams && Object.entries(projectParams.params).map(([paramName, paramDef]) =>
+            renderFormField(paramName, paramDef)
+          )}
         </Form>
       </Spin>
     </Card>
