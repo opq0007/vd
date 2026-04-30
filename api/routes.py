@@ -43,11 +43,11 @@ class TranscribeRequest(BaseModel):
 
 class OpenAIImageGenerationRequest(BaseModel):
     """OpenAI 兼容的文生图请求"""
-    model: str = "dall-e-3"
+    model: str = "z-image"
     prompt: str
     n: int = 1
     size: str = "1024x1024"
-    response_format: str = "url"
+    response_format: str = "b64_json"
     quality: Optional[str] = "standard"
     style: Optional[str] = "vivid"
 
