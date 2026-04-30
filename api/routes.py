@@ -52,6 +52,15 @@ class OpenAIImageGenerationRequest(BaseModel):
     style: Optional[str] = "vivid"
 
 
+class OpenAIImageEditRequest(BaseModel):
+    """OpenAI 兼容的图像编辑请求"""
+    model: str = "z-image"
+    prompt: str
+    n: int = 1
+    size: str = "1024x1024"
+    response_format: str = "b64_json"
+
+
 def register_routes(app) -> None:
     """
     注册所有 API 路由
@@ -3702,6 +3711,115 @@ def register_routes(app) -> None:
             import traceback
             Logger.error(f"OpenAI 文生图异常: {traceback.format_exc()}")
             return response_formatter.wrap_exception(e, "文生图失败")
+
+    @api_router.post("/comfyui/v1/images/edits")
+    async def openai_image_edit(
+        image: UploadFile = File(..., description="要编辑的图像文件"),
+        prompt: str = Form(..., description="编辑提示词"),
+        model: str = Form("flux2-klein-9B", description="模型名称"),
+        n: int = Form(1, description="生成图像数量"),
+        size: str = Form("1024x1024", description="输出图像尺寸"),
+        response_format: str = Form("b64_json", description="响应格式 (url 或 b64_json)"),
+        payload: Dict[str, Any] = Depends(verify_token)
+    ) -> Dict[str, Any]:
+        """
+        OpenAI 兼容的图像编辑接口
+
+        使用 aigc2-i2i.json 工作流编辑图像，返回 OpenAI 格式的响应
+
+        Args:
+            image: 要编辑的图像文件
+            prompt: 编辑提示词
+            model: 模型名称
+            n: 生成图像数量
+            size: 输出图像尺寸 (格式: "1024x1024")
+            response_format: 响应格式 (url 或 b64_json)
+            payload: 认证载荷
+
+        Returns:
+            Dict[str, Any]: OpenAI 格式的响应
+        """
+        try:
+            import time
+            import base64
+            from modules.comfyui_module import comfyui_module
+            from utils.file_utils import FileUtils
+
+            image_data = await image.read()
+            img_base64 = base64.b64encode(image_data).decode('utf-8')
+
+            try:
+                width, height = map(int, size.split('x'))
+            except (ValueError, AttributeError):
+                width, height = 1024, 1024
+
+            seed = int(time.time() * 1000) % 2147483647
+
+            params = {
+                "text": prompt,
+                "imgBase64": img_base64,
+                "seed": seed
+            }
+
+            result = await comfyui_module.execute_workflow_from_template(
+                workflow_name="aigc2-i2i.json",
+                params=params,
+                timeout=300
+            )
+
+            if not result.get("success"):
+                return response_formatter.error(
+                    message=result.get("error", "图像编辑失败"),
+                    error_code="IMAGE_EDIT_FAILED"
+                )
+
+            output_images = result.get("output_images", [])
+            if not output_images:
+                return response_formatter.error(
+                    message="未生成任何图像",
+                    error_code="NO_IMAGES_GENERATED"
+                )
+
+            headers = {}
+            clean_token = getattr(config, 'COMFYUI_AUTH_TOKEN')
+            if clean_token:
+                if clean_token.lower().startswith('bearer '):
+                    clean_token = clean_token[7:].strip()
+                headers['Authorization'] = f'Bearer {clean_token}'
+
+            data = []
+            for i, img_info in enumerate(output_images[:n]):
+                image_data_dict = {
+                    "revised_prompt": prompt
+                }
+
+                if response_format == "b64_json":
+                    job_dir = FileUtils.create_job_dir()
+                    local_path = job_dir / f"edited_{i}.png"
+
+                    async with httpx.AsyncClient() as client:
+                        response = await client.get(img_info["url"], headers=headers, timeout=30)
+                        if response.status_code == 200:
+                            with open(local_path, "wb") as f:
+                                f.write(response.content)
+                            with open(local_path, "rb") as f:
+                                b64_data = base64.b64encode(f.read()).decode('utf-8')
+                            image_data_dict["b64_json"] = b64_data
+                        else:
+                            image_data_dict["url"] = img_info["url"]
+                else:
+                    image_data_dict["url"] = img_info["url"]
+                data.append(image_data_dict)
+
+            return {
+                "created": int(time.time()),
+                "data": data
+            }
+
+        except Exception as e:
+            import traceback
+            Logger.error(f"OpenAI 图像编辑异常: {traceback.format_exc()}")
+            return response_formatter.wrap_exception(e, "图像编辑失败")
 
     # 注册路由器到应用
     app.include_router(api_router)
