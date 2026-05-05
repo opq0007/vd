@@ -612,8 +612,8 @@ class VideoEffectsProcessor:
                         Logger.info(f"使用默认字体: {default_font_name}")
                     else:
                         Logger.warning("没有可用的字体文件，尝试使用系统字体")
-                        # 尝试使用系统字体
-                        font_names = ['simhei.ttf', 'msyh.ttc', 'simhei', 'Microsoft YaHei']
+                        # 尝试使用系统字体（使用实际存在的字体文件名）
+                        font_names = ['微软雅黑.TTC', '黑体.TTF', '宋体常规.ttc', 'simhei.ttf', 'msyh.ttc', 'simhei', 'Microsoft YaHei']
                         font = None
                         for fn in font_names:
                             try:

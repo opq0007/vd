@@ -18,22 +18,13 @@ class Config:
     HOST = os.environ.get("HOST", "0.0.0.0")
     PORT = int(os.environ.get("PORT", 7860))
     ENABLE_GRADIO_UI = os.environ.get("ENABLE_GRADIO_UI", "true").lower() in ("true", "1", "yes")
-    
-    # Token校验控制（默认启用，启用后API接口和Gradio界面都需要鉴权）
     ENABLE_TOKEN_AUTH = os.environ.get("ENABLE_TOKEN_AUTH", "true").lower() in ("true", "1", "yes")
-
-    # ==================== Gradio 界面鉴权配置 ====================
-    # Gradio登录会话超时时间（秒），默认24小时
-    GRADIO_AUTH_TIMEOUT = int(os.environ.get("GRADIO_AUTH_TIMEOUT", 86400))
-    # Gradio登录重定向路径
-    GRADIO_LOGIN_PATH = "/login"
-
-    # ==================== URL 配置 ====================
-    BASE_HOST = os.environ.get("BASE_HOST", "127.0.0.1")
-    BASE_URL = f"http://{BASE_HOST}:{PORT}"
-    API_BASE_URL = f"{BASE_URL}/api"
-    GRADIO_URL = f"{BASE_URL}/ui"
-    DOCS_URL = f"{BASE_URL}/docs"
+    BASE_URL = f"http://{HOST}:{PORT}"
+    DOCS_URL = f"http://{HOST}:{PORT}/docs"
+    GRADIO_URL = f"http://{HOST}:{PORT}"
+    GRADIO_USERNAME = os.environ.get("GRADIO_USERNAME", "admin")
+    GRADIO_PASSWORD = os.environ.get("GRADIO_PASSWORD", "admin")
+    GRADIO_AUTH_TIMEOUT = int(os.environ.get("GRADIO_AUTH_TIMEOUT", "86400"))
 
     # ==================== Whisper 模型配置 ====================
     DEFAULT_MODEL = os.environ.get("FW_MODEL", "small")
@@ -67,12 +58,6 @@ class Config:
     API_TOKENS = {
         'opq#key': 'automation'
     }
-
-    # Gradio 界面登录用户配置
-    # 统一使用 API_TOKEN 作为 admin 用户的密码，实现 API 和界面鉴权的统一
-    # 用户名固定为 admin，密码为 API_TOKEN 的值
-    GRADIO_USERNAME = "admin"
-    GRADIO_PASSWORD = API_TOKEN
 
     # ==================== 支持的文件格式 ====================
     VIDEO_EXTENSIONS = ['.mp4', '.avi', '.mov', '.mkv', '.wmv', '.flv', '.webm']

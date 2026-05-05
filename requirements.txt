@@ -4,8 +4,8 @@ uvicorn
 python-multipart
 aiofiles
 PyJWT
-gradio
 requests
+httpx
 playwright>=1.40.0
 opencv-python
 numpy

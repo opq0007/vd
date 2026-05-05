@@ -7,9 +7,11 @@ API 路由模块
 from pathlib import Path
 from typing import Dict, Any, Optional
 
-from fastapi import APIRouter, File, UploadFile, Form, HTTPException, Depends, Query
-from fastapi.responses import FileResponse
+from fastapi import APIRouter, File, UploadFile, Form, HTTPException, Depends, Query, Request
+from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel
+import httpx
+import asyncio
 
 from config import config
 from api.auth import AuthService, verify_token, verify_token_required
@@ -23,6 +25,7 @@ from modules.image_processing_module import image_processing_module
 from modules.email_module import email_module
 from utils.logger import Logger
 from utils.media_processor import MediaProcessor
+from utils.font_manager import font_manager
 import os
 
 
@@ -36,6 +39,26 @@ class TranscribeRequest(BaseModel):
     audio_path: str
     whisper_model: str = None
     beam_size: int = None
+
+
+class OpenAIImageGenerationRequest(BaseModel):
+    """OpenAI 兼容的文生图请求"""
+    model: str = "z-image"
+    prompt: str
+    n: int = 1
+    size: str = "1024x1024"
+    response_format: str = "b64_json"
+    quality: Optional[str] = "standard"
+    style: Optional[str] = "vivid"
+
+
+class OpenAIImageEditRequest(BaseModel):
+    """OpenAI 兼容的图像编辑请求"""
+    model: str = "z-image"
+    prompt: str
+    n: int = 1
+    size: str = "1024x1024"
+    response_format: str = "b64_json"
 
 
 def register_routes(app) -> None:
@@ -443,6 +466,8 @@ def register_routes(app) -> None:
                     error_code="TTS_SYNTHESIZE_FAILED"
                 )
         except Exception as e:
+            import traceback
+            Logger.error(f"TTS 合成异常: {traceback.format_exc()}")
             return response_formatter.wrap_exception(e, "语音合成失败")
 
     @api_router.post("/tts/save_ref")
@@ -791,8 +816,11 @@ def register_routes(app) -> None:
     # ==================== 视频转场 ====================
     @api_router.post("/transition/apply")
     async def apply_transition(
-        video1: UploadFile = File(...),
-        video2: UploadFile = File(...),
+        input_type: str = Form("upload"),
+        video1: UploadFile = File(None),
+        video2: UploadFile = File(None),
+        video1_path: str = Form(None),
+        video2_path: str = Form(None),
         transition_name: str = Form("crossfade"),
         total_frames: int = Form(100),
         fps: int = Form(25),
@@ -804,8 +832,11 @@ def register_routes(app) -> None:
         应用转场效果
 
         Args:
-            video1: 第一个视频文件
-            video2: 第二个视频文件
+            input_type: 输入类型 (upload/path)
+            video1: 第一个视频文件（upload模式）
+            video2: 第二个视频文件（upload模式）
+            video1_path: 第一个视频文件路径（path模式）
+            video2_path: 第二个视频文件路径（path模式）
             transition_name: 转场效果名称
             total_frames: 转场帧数
             fps: 帧率
@@ -820,18 +851,40 @@ def register_routes(app) -> None:
             from utils.file_utils import FileUtils
             job_dir = FileUtils.create_job_dir()
 
-            video1_path = job_dir / video1.filename
-            video2_path = job_dir / video2.filename
+            # 处理视频文件
+            actual_video1_path = None
+            actual_video2_path = None
 
-            with open(video1_path, "wb") as f:
-                f.write(await video1.read())
+            if input_type == "upload":
+                if not video1 or not video2:
+                    return response_formatter.error(
+                        message="请上传两个视频文件",
+                        error_code="NO_VIDEO_UPLOADED"
+                    )
 
-            with open(video2_path, "wb") as f:
-                f.write(await video2.read())
+                video1_path_obj = job_dir / video1.filename
+                video2_path_obj = job_dir / video2.filename
+
+                with open(video1_path_obj, "wb") as f:
+                    f.write(await video1.read())
+
+                with open(video2_path_obj, "wb") as f:
+                    f.write(await video2.read())
+
+                actual_video1_path = str(video1_path_obj)
+                actual_video2_path = str(video2_path_obj)
+            else:  # path
+                if not video1_path or not video1_path.strip() or not video2_path or not video2_path.strip():
+                    return response_formatter.error(
+                        message="请提供两个视频文件路径",
+                        error_code="NO_VIDEO_PATH"
+                    )
+                actual_video1_path = video1_path
+                actual_video2_path = video2_path
 
             result = await transition_module.apply_transition(
-                video1_path=str(video1_path),
-                video2_path=str(video2_path),
+                video1_path=actual_video1_path,
+                video2_path=actual_video2_path,
                 transition_name=transition_name,
                 total_frames=total_frames,
                 fps=fps,
@@ -910,7 +963,7 @@ def register_routes(app) -> None:
         audio_path: str = Form(None),
         # 花字配置
         flower_text: str = Form(None),
-        flower_font: str = Form("Microsoft YaHei"),
+        flower_font: str = Form(None),
         flower_size: int = Form(40),
         flower_color: str = Form("#FFFFFF"),
         flower_color_mode: str = Form("单色"),
@@ -957,7 +1010,7 @@ def register_routes(app) -> None:
         video_end_time: str = Form("99:59:59"),
         # 水印配置
         watermark_text: str = Form(None),
-        watermark_font: str = Form("黑体.TTF"),
+        watermark_font: str = Form(None),
         watermark_size: int = Form(20),
         watermark_color: str = Form("#FFFFFF"),
         watermark_timing_type: str = Form("时间戳范围"),
@@ -1061,6 +1114,9 @@ def register_routes(app) -> None:
             # 准备花字配置
             flower_config = None
             if flower_text and flower_text.strip():
+                # 如果没有指定字体，使用fonts目录下的默认字体
+                if not flower_font:
+                    flower_font = font_manager.get_default_font()
                 flower_config = {
                     'text': flower_text,
                     'font': flower_font,
@@ -1123,6 +1179,9 @@ def register_routes(app) -> None:
             # 准备水印配置
             watermark_config = None
             if watermark_text and watermark_text.strip():
+                # 如果没有指定字体，使用fonts目录下的默认字体
+                if not watermark_font:
+                    watermark_font = font_manager.get_default_font()
                 watermark_config = {
                     'text': watermark_text,
                     'font': watermark_font,
@@ -1188,6 +1247,28 @@ def register_routes(app) -> None:
             )
         except Exception as e:
             return response_formatter.wrap_exception(e, "获取视频效果列表失败")
+
+    @api_router.get("/video_editor/fonts")
+    async def get_available_fonts(
+        payload: Dict[str, Any] = Depends(verify_token)
+    ) -> Dict[str, Any]:
+        """
+        获取可用的字体列表
+
+        Args:
+            payload: 认证载荷
+
+        Returns:
+            Dict[str, Any]: 字体列表
+        """
+        try:
+            fonts = font_manager.get_available_fonts()
+            return response_formatter.success(
+                data={"fonts": fonts},
+                message="获取字体列表成功"
+            )
+        except Exception as e:
+            return response_formatter.wrap_exception(e, "获取字体列表失败")
 
     @api_router.post("/video_editor/watermark")
     async def add_watermark(
@@ -1440,7 +1521,9 @@ def register_routes(app) -> None:
     # ==================== 视频合并 ====================
     @api_router.post("/video_merge/merge")
     async def merge_videos(
-        video_paths: str = Form(...),
+        input_type: str = Form("path"),
+        video_files: list[UploadFile] = File(None),
+        video_paths: str = Form(None),
         out_basename: str = Form(None),
         delete_intermediate_videos: bool = Form(True),
         payload: Dict[str, Any] = Depends(verify_token)
@@ -1449,7 +1532,9 @@ def register_routes(app) -> None:
         合并多个视频文件
 
         Args:
-            video_paths: 视频文件路径列表，用换行符分隔
+            input_type: 输入类型 (upload/path)
+            video_files: 上传的视频文件列表（upload模式）
+            video_paths: 视频文件路径列表，用换行符分隔（path模式）
             out_basename: 输出文件名前缀
             delete_intermediate_videos: 是否删除中间视频文件（默认为True）
             payload: 认证载荷
@@ -1459,10 +1544,41 @@ def register_routes(app) -> None:
         """
         try:
             from modules.video_merge_module import video_merge_module
+            from utils.file_utils import FileUtils
+
+            # 处理视频文件
+            actual_video_paths = []
+
+            if input_type == "upload":
+                if not video_files or len(video_files) < 2:
+                    return response_formatter.error(
+                        message="请至少上传两个视频文件",
+                        error_code="NO_VIDEO_UPLOADED"
+                    )
+
+                job_dir = FileUtils.create_job_dir()
+                for video_file in video_files:
+                    video_path = job_dir / video_file.filename
+                    with open(video_path, "wb") as f:
+                        f.write(await video_file.read())
+                    actual_video_paths.append(str(video_path))
+            else:  # path
+                if not video_paths or not video_paths.strip():
+                    return response_formatter.error(
+                        message="请提供视频文件路径列表",
+                        error_code="NO_VIDEO_PATH"
+                    )
+                actual_video_paths = [p.strip() for p in video_paths.strip().split('\n') if p.strip()]
+
+                if len(actual_video_paths) < 2:
+                    return response_formatter.error(
+                        message="请至少提供两个视频文件路径",
+                        error_code="INSUFFICIENT_VIDEO_PATHS"
+                    )
 
             # 执行视频合并
             result = await video_merge_module.merge_videos(
-                video_paths=video_paths,
+                video_paths='\n'.join(actual_video_paths),
                 out_basename=out_basename,
                 delete_intermediate_videos=delete_intermediate_videos
             )
@@ -3423,6 +3539,287 @@ def register_routes(app) -> None:
                 )
         except Exception as e:
             return response_formatter.wrap_exception(e, "SMTP连接测试失败")
+
+    @api_router.get("/comfyui/proxy/view")
+    async def comfyui_proxy_view(
+        filename: str = Query(..., description="文件名"),
+        subfolder: str = Query("", description="子文件夹"),
+        type: str = Query("output", description="文件类型"),
+        server_url: Optional[str] = Query(None, description="ComfyUI 服务器地址"),
+        auth_token: Optional[str] = Query(None, description="ComfyUI 认证 Token"),
+        payload: Dict[str, Any] = Depends(verify_token)
+    ) -> Response:
+        """
+        代理 ComfyUI 的 view 端点，用于获取生成的图片
+
+        Args:
+            filename: 文件名
+            subfolder: 子文件夹
+            type: 文件类型
+            server_url: ComfyUI 服务器地址（不传则使用默认配置）
+            auth_token: ComfyUI 认证 Token（不传则使用默认配置）
+            payload: 认证载荷
+
+        Returns:
+            Response: 图片文件响应
+        """
+        try:
+            url = server_url or getattr(config, 'COMFYUI_SERVER_URL', 'http://127.0.0.1:8188')
+            
+            params = {
+                "filename": filename,
+                "subfolder": subfolder,
+                "type": type
+            }
+            
+            headers = {}
+            clean_token = auth_token or getattr(config, 'COMFYUI_AUTH_TOKEN')
+            if clean_token:
+                if clean_token.lower().startswith('bearer '):
+                    clean_token = clean_token[7:].strip()
+                headers['Authorization'] = f'Bearer {clean_token}'
+            
+            async with httpx.AsyncClient() as client:
+                response = await client.get(
+                    f"{url}/view",
+                    params=params,
+                    headers=headers,
+                    timeout=30.0
+                )
+                
+                if response.status_code == 200:
+                    return Response(
+                        content=response.content,
+                        media_type=response.headers.get('content-type', 'image/png'),
+                        headers={
+                            'Cache-Control': 'public, max-age=3600',
+                        }
+                    )
+                else:
+                    raise HTTPException(
+                        status_code=response.status_code,
+                        detail=f"ComfyUI 服务器返回错误: {response.status_code}"
+                    )
+        except httpx.TimeoutException:
+            raise HTTPException(status_code=504, detail="请求 ComfyUI 服务器超时")
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"代理请求失败: {str(e)}")
+
+    # ==================== OpenAI 兼容文生图接口 ====================
+    @api_router.post("/comfyui/v1/images/generations")
+    async def openai_image_generation(
+        request: OpenAIImageGenerationRequest,
+        payload: Dict[str, Any] = Depends(verify_token)
+    ) -> Dict[str, Any]:
+        """
+        OpenAI 兼容的文生图接口
+
+        使用 aigc2-t2i.json 工作流生成图像，返回 OpenAI 格式的响应
+
+        Args:
+            request: OpenAI 兼容的文生图请求
+            payload: 认证载荷
+
+        Returns:
+            Dict[str, Any]: OpenAI 格式的响应
+        """
+        try:
+            import json
+            import time
+            from modules.comfyui_module import comfyui_module
+
+            # 解析 size 参数 (格式: "1024x1024")
+            try:
+                width, height = map(int, request.size.split('x'))
+            except (ValueError, AttributeError):
+                width, height = 1024, 1024
+
+            # 生成随机种子
+            seed = int(time.time() * 1000) % 2147483647
+
+            # 准备工作流参数
+            params = {
+                "text": request.prompt,
+                "width": width,
+                "height": height,
+                "seed": seed
+            }
+
+            # 执行工作流
+            result = await comfyui_module.execute_workflow_from_template(
+                workflow_name="aigc2-t2i.json",
+                params=params,
+                timeout=300
+            )
+
+            if not result.get("success"):
+                return response_formatter.error(
+                    message=result.get("error", "图像生成失败"),
+                    error_code="IMAGE_GENERATION_FAILED"
+                )
+
+            # 提取生成的图像
+            output_images = result.get("output_images", [])
+            if not output_images:
+                return response_formatter.error(
+                    message="未生成任何图像",
+                    error_code="NO_IMAGES_GENERATED"
+                )
+
+            # 构建 OpenAI 格式的响应
+            headers = {}
+            clean_token = getattr(config, 'COMFYUI_AUTH_TOKEN')
+            if clean_token:
+                if clean_token.lower().startswith('bearer '):
+                    clean_token = clean_token[7:].strip()
+                headers['Authorization'] = f'Bearer {clean_token}'
+            data = []
+            for i, img_info in enumerate(output_images[:request.n]):
+                image_data = {
+                    "revised_prompt": request.prompt
+                }
+
+                if request.response_format == "b64_json":
+                    # 下载图像并转换为 base64
+                    import base64
+                    from utils.file_utils import FileUtils
+                    job_dir = FileUtils.create_job_dir()
+                    local_path = job_dir / f"generated_{i}.png"
+
+                    async with httpx.AsyncClient() as client:
+                        response = await client.get(img_info["url"], headers=headers, timeout=30)
+                        if response.status_code == 200:
+                            with open(local_path, "wb") as f:
+                                f.write(response.content)
+                            with open(local_path, "rb") as f:
+                                b64_data = base64.b64encode(f.read()).decode('utf-8')
+                            image_data["b64_json"] = b64_data
+                        else:
+                            # 如果下载失败，回退到 URL 格式
+                            image_data["url"] = img_info["url"]
+                else:
+                    image_data["url"] = img_info["url"]
+                data.append(image_data)
+
+            # 返回 OpenAI 格式的响应
+            return {
+                "created": int(time.time()),
+                "data": data
+            }
+
+        except Exception as e:
+            import traceback
+            Logger.error(f"OpenAI 文生图异常: {traceback.format_exc()}")
+            return response_formatter.wrap_exception(e, "文生图失败")
+
+    @api_router.post("/comfyui/v1/images/edits")
+    async def openai_image_edit(
+        image: UploadFile = File(..., description="要编辑的图像文件"),
+        prompt: str = Form(..., description="编辑提示词"),
+        model: str = Form("flux2-klein-9B", description="模型名称"),
+        n: int = Form(1, description="生成图像数量"),
+        size: str = Form("1024x1024", description="输出图像尺寸"),
+        response_format: str = Form("b64_json", description="响应格式 (url 或 b64_json)"),
+        payload: Dict[str, Any] = Depends(verify_token)
+    ) -> Dict[str, Any]:
+        """
+        OpenAI 兼容的图像编辑接口
+
+        使用 aigc2-i2i.json 工作流编辑图像，返回 OpenAI 格式的响应
+
+        Args:
+            image: 要编辑的图像文件
+            prompt: 编辑提示词
+            model: 模型名称
+            n: 生成图像数量
+            size: 输出图像尺寸 (格式: "1024x1024")
+            response_format: 响应格式 (url 或 b64_json)
+            payload: 认证载荷
+
+        Returns:
+            Dict[str, Any]: OpenAI 格式的响应
+        """
+        try:
+            import time
+            import base64
+            from modules.comfyui_module import comfyui_module
+            from utils.file_utils import FileUtils
+
+            image_data = await image.read()
+            img_base64 = base64.b64encode(image_data).decode('utf-8')
+
+            try:
+                width, height = map(int, size.split('x'))
+            except (ValueError, AttributeError):
+                width, height = 1024, 1024
+
+            seed = int(time.time() * 1000) % 2147483647
+
+            params = {
+                "text": prompt,
+                "imgBase64": img_base64,
+                "seed": seed
+            }
+
+            result = await comfyui_module.execute_workflow_from_template(
+                workflow_name="aigc2-i2i.json",
+                params=params,
+                timeout=300
+            )
+
+            if not result.get("success"):
+                return response_formatter.error(
+                    message=result.get("error", "图像编辑失败"),
+                    error_code="IMAGE_EDIT_FAILED"
+                )
+
+            output_images = result.get("output_images", [])
+            if not output_images:
+                return response_formatter.error(
+                    message="未生成任何图像",
+                    error_code="NO_IMAGES_GENERATED"
+                )
+
+            headers = {}
+            clean_token = getattr(config, 'COMFYUI_AUTH_TOKEN')
+            if clean_token:
+                if clean_token.lower().startswith('bearer '):
+                    clean_token = clean_token[7:].strip()
+                headers['Authorization'] = f'Bearer {clean_token}'
+
+            data = []
+            for i, img_info in enumerate(output_images[:n]):
+                image_data_dict = {
+                    "revised_prompt": prompt
+                }
+
+                if response_format == "b64_json":
+                    job_dir = FileUtils.create_job_dir()
+                    local_path = job_dir / f"edited_{i}.png"
+
+                    async with httpx.AsyncClient() as client:
+                        response = await client.get(img_info["url"], headers=headers, timeout=30)
+                        if response.status_code == 200:
+                            with open(local_path, "wb") as f:
+                                f.write(response.content)
+                            with open(local_path, "rb") as f:
+                                b64_data = base64.b64encode(f.read()).decode('utf-8')
+                            image_data_dict["b64_json"] = b64_data
+                        else:
+                            image_data_dict["url"] = img_info["url"]
+                else:
+                    image_data_dict["url"] = img_info["url"]
+                data.append(image_data_dict)
+
+            return {
+                "created": int(time.time()),
+                "data": data
+            }
+
+        except Exception as e:
+            import traceback
+            Logger.error(f"OpenAI 图像编辑异常: {traceback.format_exc()}")
+            return response_formatter.wrap_exception(e, "图像编辑失败")
 
     # 注册路由器到应用
     app.include_router(api_router)

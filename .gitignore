@@ -229,3 +229,5 @@ templates/**/*.mp4
 
 # 测试脚本输出
 *.log
+
+remo-fects/

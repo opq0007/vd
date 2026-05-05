@@ -90,10 +90,8 @@ class VideoEditorModule:
                     elif isinstance(video_file, int):
                         pass  # 跳过采样率
                     if isinstance(video_file, str):
-                        video_file_path = Path(video_file)
-                        local_input = job_dir / video_file_path.name
-                        import shutil
-                        shutil.copy2(video_file, local_input)
+                        # 使用 FileUtils.process_path_input 处理文件，避免 SameFileError
+                        local_input = FileUtils.process_path_input(video_file, job_dir)
                 elif audio_file:
                     # 处理音频文件
                     if isinstance(audio_file, tuple):
@@ -101,10 +99,8 @@ class VideoEditorModule:
                     elif isinstance(audio_file, int):
                         pass  # 跳过采样率
                     if isinstance(audio_file, str):
-                        audio_file_path = Path(audio_file)
-                        audio_input = job_dir / audio_file_path.name
-                        import shutil
-                        shutil.copy2(audio_file, audio_input)
+                        # 使用 FileUtils.process_path_input 处理文件，避免 SameFileError
+                        audio_input = FileUtils.process_path_input(audio_file, job_dir)
 
             elif input_type == "path":
                 # 处理路径输入
